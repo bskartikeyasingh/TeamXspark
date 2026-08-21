@@ -1,0 +1,1 @@
+# AegisCampus AI data models package.
