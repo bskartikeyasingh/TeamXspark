@@ -1,39 +1,70 @@
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from groq import Groq
 
 
-load_dotenv()
+# ============================================================
+# AegisCampus AI
+# Incident Intelligence Agent
+# ============================================================
+
+# File:
+# backend/app/ai/incident_agent.py
+#
+# Environment:
+# backend/.env
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+ENV_FILE = BACKEND_DIR / ".env"
+
+load_dotenv(
+    dotenv_path=ENV_FILE,
+    override=True,
+)
 
 
 class IncidentIntelligenceAgent:
-    """
-    Incident Intelligence Agent.
 
-    Responsibilities:
-    - Understand emergency descriptions.
-    - Classify incident type.
-    - Assess severity.
-    - Extract location.
-    - Estimate affected people.
-    - Produce a concise operational summary.
-    """
+    MODEL = "openai/gpt-oss-120b"
+
+    ALLOWED_INCIDENT_TYPES = {
+        "Fire",
+        "Medical",
+        "Security",
+        "Severe Weather",
+        "Accident",
+        "Crowd",
+        "Infrastructure",
+        "Other",
+    }
+
+    ALLOWED_SEVERITIES = {
+        "Critical",
+        "High",
+        "Medium",
+        "Low",
+    }
 
     def __init__(self):
+
         api_key = os.getenv("GROQ_API_KEY")
 
         if not api_key:
+
             raise RuntimeError(
-                "GROQ_API_KEY is missing. "
-                "Add it to backend/.env."
+                "GROQ_API_KEY is missing.\n"
+                f"Expected environment file: {ENV_FILE}\n"
+                f"File exists: {ENV_FILE.exists()}"
             )
 
-        self.client = Groq(api_key=api_key)
-
-        self.model = "llama-3.3-70b-versatile"
+        self.client = Groq(
+            api_key=api_key
+        )
 
     def analyze(
         self,
@@ -41,102 +72,126 @@ class IncidentIntelligenceAgent:
         location: str | None = None,
     ) -> dict[str, Any]:
 
-        location_text = location or "Not explicitly provided"
+        if not description or not description.strip():
+            raise ValueError(
+                "Emergency description cannot be empty."
+            )
+
+        reported_location = (
+            location.strip()
+            if location
+            else "Not explicitly provided"
+        )
 
         system_prompt = """
-You are the Incident Intelligence Agent for AegisCampus AI,
-a campus emergency response coordination system.
+You are the Incident Intelligence Agent of AegisCampus AI.
 
-Your job is to analyze emergency reports and return structured
-operational information for downstream emergency-response agents.
+AegisCampus AI is a university emergency command and
+coordination platform.
 
-Classify the incident into exactly one of:
+Analyze emergency reports and convert them into structured
+operational intelligence for downstream emergency agents.
 
-- Fire
-- Medical
-- Security
-- Severe Weather
-- Accident
-- Crowd
-- Infrastructure
-- Other
+You are NOT the final authority.
 
-Classify severity as exactly one of:
+Incident types:
 
-- Critical
-- High
-- Medium
-- Low
+Fire
+Medical
+Security
+Severe Weather
+Accident
+Crowd
+Infrastructure
+Other
 
-Rules:
+Severity levels:
 
 Critical:
-Immediate threat to life, fire, major security threat,
-multiple people potentially trapped or severely injured.
+Immediate threat to life, major fire, people trapped,
+multiple casualties, active violent threat, or major
+infrastructure danger.
 
 High:
 Serious emergency requiring rapid response.
 
 Medium:
-Emergency requiring coordinated response but with limited
+Emergency requiring coordinated response with limited
 immediate danger.
 
 Low:
 Minor incident with limited immediate risk.
 
+Use the reported location when available.
+
+Do not invent a precise location.
+
+Return affected_people as a non-negative integer.
+
+Return confidence as an integer from 0 to 100.
+
+Return a concise operational summary.
+
 Return ONLY valid JSON.
 
-The JSON must contain exactly these fields:
+Do not use Markdown.
+
+Do not use code fences.
+
+The response must contain exactly:
 
 {
-  "incident_type": "string",
-  "severity": "string",
-  "location": "string",
-  "affected_people": 0,
-  "confidence": 0,
-  "summary": "string"
+    "incident_type": "Fire",
+    "severity": "Critical",
+    "location": "Block C - 2nd Floor",
+    "affected_people": 25,
+    "confidence": 95,
+    "summary": "Fire with possible trapped students requiring immediate emergency response."
 }
-
-confidence must be an integer from 0 to 100.
-
-affected_people must be a non-negative integer.
-
-If the number of affected people is not known, estimate
-conservatively based on the description.
-
-Do not invent precise information that is not supported
-by the report.
 """
 
         user_prompt = f"""
-Emergency report:
+Analyze this campus emergency report.
 
+EMERGENCY REPORT:
 {description}
 
-Reported location:
+REPORTED LOCATION:
+{reported_location}
 
-{location_text}
-
-Analyze this incident now.
+Return the required JSON.
 """
 
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                },
-            ],
-            temperature=0.1,
-            max_tokens=500,
-        )
+        try:
 
-        content = completion.choices[0].message.content
+            response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    },
+                    {
+                        "role": "user",
+                        "content": user_prompt,
+                    },
+                ],
+                temperature=0.1,
+                max_completion_tokens=800,
+            )
+
+        except Exception as exc:
+
+            raise RuntimeError(
+                f"Groq API request failed: {exc}"
+            ) from exc
+
+        content = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
         if not content:
             raise RuntimeError(
@@ -145,20 +200,34 @@ Analyze this incident now.
 
         return self._parse_response(content)
 
-    @staticmethod
-    def _parse_response(content: str) -> dict[str, Any]:
+    @classmethod
+    def _parse_response(
+        cls,
+        content: str,
+    ) -> dict[str, Any]:
+
         cleaned = content.strip()
 
-        if cleaned.startswith("```"):
-            cleaned = cleaned.replace("```json", "")
-            cleaned = cleaned.replace("```", "")
-            cleaned = cleaned.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[len("```json"):]
+
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[len("```"):]
+
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+
+        cleaned = cleaned.strip()
 
         try:
+
             result = json.loads(cleaned)
+
         except json.JSONDecodeError as exc:
+
             raise RuntimeError(
-                f"AI returned invalid JSON: {content}"
+                "AI returned invalid JSON.\n"
+                f"Raw response:\n{content}"
             ) from exc
 
         required_fields = {
@@ -170,25 +239,75 @@ Analyze this incident now.
             "summary",
         }
 
-        missing_fields = required_fields - result.keys()
+        missing_fields = (
+            required_fields - result.keys()
+        )
 
         if missing_fields:
+
             raise RuntimeError(
                 "AI response is missing fields: "
-                + ", ".join(sorted(missing_fields))
+                + ", ".join(
+                    sorted(missing_fields)
+                )
             )
 
-        result["confidence"] = max(
-            0,
-            min(100, int(result["confidence"])),
-        )
+        incident_type = str(
+            result["incident_type"]
+        ).strip()
+
+        if incident_type not in cls.ALLOWED_INCIDENT_TYPES:
+            incident_type = "Other"
+
+        result["incident_type"] = incident_type
+
+        severity = str(
+            result["severity"]
+        ).strip()
+
+        if severity not in cls.ALLOWED_SEVERITIES:
+            severity = "Medium"
+
+        result["severity"] = severity
+
+        result["location"] = str(
+            result["location"]
+        ).strip()
+
+        try:
+            affected_people = int(
+                result["affected_people"]
+            )
+        except (TypeError, ValueError):
+            affected_people = 0
 
         result["affected_people"] = max(
             0,
-            int(result["affected_people"]),
+            affected_people,
         )
+
+        try:
+            confidence = int(
+                result["confidence"]
+            )
+        except (TypeError, ValueError):
+            confidence = 50
+
+        result["confidence"] = max(
+            0,
+            min(
+                100,
+                confidence,
+            ),
+        )
+
+        result["summary"] = str(
+            result["summary"]
+        ).strip()
 
         return result
 
 
-incident_intelligence_agent = IncidentIntelligenceAgent()
+incident_intelligence_agent = (
+    IncidentIntelligenceAgent()
+)

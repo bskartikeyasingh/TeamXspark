@@ -1,44 +1,88 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes.incidents import router as incidents_router
+from backend.app.routes.incidents import router as incidents_router
+from backend.app.routes.emergency import router as emergency_router
 
+
+# ============================================================
+# AegisCampus AI
+# FastAPI Application
+# ============================================================
 
 app = FastAPI(
     title="AegisCampus AI",
-    description="AI Multi-Agent Campus Emergency Response & Resource Coordination System",
-    version="0.1.0",
+    description=(
+        "AI Multi-Agent Campus Emergency "
+        "Response and Resource Coordination System"
+    ),
+    version="1.0.0",
 )
 
 
+# ============================================================
+# CORS
+# ============================================================
+
 app.add_middleware(
     CORSMiddleware,
+
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
+
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+
+    allow_methods=[
+        "*",
+    ],
+
+    allow_headers=[
+        "*",
+    ],
 )
 
 
+# ============================================================
+# ROUTES
+# ============================================================
+
+app.include_router(
+    incidents_router
+)
+
+app.include_router(
+    emergency_router
+)
+
+
+# ============================================================
+# ROOT
+# ============================================================
+
 @app.get("/")
-async def root():
+def root():
+
     return {
         "name": "AegisCampus AI",
         "status": "online",
-        "message": "Emergency coordination backend is running.",
-        "version": "0.1.0",
+        "version": "1.0.0",
+        "message": (
+            "AI Multi-Agent Campus Emergency "
+            "Response System"
+        ),
     }
 
+
+# ============================================================
+# HEALTH
+# ============================================================
 
 @app.get("/health")
-async def health():
+def health():
+
     return {
         "status": "healthy",
-        "service": "aegiscampus-backend",
+        "service": "AegisCampus AI",
     }
-
-
-app.include_router(incidents_router)

@@ -3,7 +3,10 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 
-from app.ai.incident_agent import incident_intelligence_agent
+from app.ai.incident_agent import (
+    incident_intelligence_agent,
+)
+
 from app.models.incident import (
     IncidentCreate,
     IncidentResponse,
@@ -16,30 +19,65 @@ router = APIRouter(
 )
 
 
-@router.post("", response_model=IncidentResponse)
-async def create_incident(incident: IncidentCreate):
+# ============================================================
+# CREATE INCIDENT
+# ============================================================
+
+@router.post(
+    "",
+    response_model=IncidentResponse,
+)
+async def create_incident(
+    incident: IncidentCreate,
+):
 
     try:
-        analysis = incident_intelligence_agent.analyze(
-            description=incident.description,
-            location=incident.location,
+
+        # ----------------------------------------------------
+        # Send emergency report to AI agent
+        # ----------------------------------------------------
+
+        analysis = (
+            incident_intelligence_agent.analyze(
+                description=incident.description,
+                location=incident.location,
+            )
         )
 
     except Exception as exc:
+
         print(
-            "Incident Intelligence Agent error:",
-            str(exc),
+            "\n"
+            "============================================\n"
+            "INCIDENT INTELLIGENCE AGENT ERROR\n"
+            "============================================"
+        )
+
+        print(str(exc))
+
+        print(
+            "============================================\n"
         )
 
         raise HTTPException(
             status_code=500,
             detail=(
                 "Incident Intelligence Agent failed. "
-                "Check the backend terminal for details."
+                "Check the backend terminal."
             ),
         )
 
-    incident_id = f"INC-{str(uuid4())[:6].upper()}"
+    # --------------------------------------------------------
+    # Generate incident ID
+    # --------------------------------------------------------
+
+    incident_id = (
+        f"INC-{str(uuid4())[:6].upper()}"
+    )
+
+    # --------------------------------------------------------
+    # Determine location
+    # --------------------------------------------------------
 
     detected_location = (
         analysis.get("location")
@@ -47,7 +85,30 @@ async def create_incident(incident: IncidentCreate):
         or "Unknown Campus Location"
     )
 
-    response = IncidentResponse(
+    # --------------------------------------------------------
+    # Print AI analysis
+    # --------------------------------------------------------
+
+    print(
+        "\n"
+        "============================================\n"
+        "AEGISCAMPUS AI INCIDENT ANALYSIS\n"
+        "============================================\n"
+        f"Incident ID:    {incident_id}\n"
+        f"Type:           {analysis['incident_type']}\n"
+        f"Severity:       {analysis['severity']}\n"
+        f"Location:       {detected_location}\n"
+        f"Affected:       {analysis['affected_people']}\n"
+        f"Confidence:     {analysis['confidence']}%\n"
+        f"Summary:        {analysis['summary']}\n"
+        "============================================\n"
+    )
+
+    # --------------------------------------------------------
+    # Build API response
+    # --------------------------------------------------------
+
+    return IncidentResponse(
         incident_id=incident_id,
         description=incident.description,
         incident_type=analysis["incident_type"],
@@ -59,23 +120,10 @@ async def create_incident(incident: IncidentCreate):
         source=incident.source,
     )
 
-    print(
-        "\n"
-        "============================================\n"
-        "AEGISCAMPUS INCIDENT INTELLIGENCE\n"
-        "============================================\n"
-        f"Incident ID: {incident_id}\n"
-        f"Type:       {analysis['incident_type']}\n"
-        f"Severity:   {analysis['severity']}\n"
-        f"Location:   {detected_location}\n"
-        f"Affected:   {analysis['affected_people']}\n"
-        f"Confidence: {analysis['confidence']}%\n"
-        f"Summary:    {analysis['summary']}\n"
-        "============================================\n"
-    )
 
-    return response
-
+# ============================================================
+# GET INCIDENTS
+# ============================================================
 
 @router.get("")
 async def get_incidents():
