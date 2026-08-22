@@ -1,0 +1,4 @@
+
+# Firebase private credentials
+backend/firebase-service-account.json
+backend/.env

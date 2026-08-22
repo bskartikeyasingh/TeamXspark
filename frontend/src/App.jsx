@@ -1,1243 +1,3137 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { signOut } from "firebase/auth";
+import { auth } from "./firebase";
 import {
   Activity,
-  AlertCircle,
+  AlertTriangle,
   Ambulance,
-  ArrowUpRight,
   Bell,
-  Bot,
-  Building2,
+  Car,
   CheckCircle2,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Home,
-  MapPin,
+  ClipboardList,
+  Flame,
+  HardHat,
+  LayoutDashboard,
+  LogOut,
+  Map,
   Menu,
-  MessageSquare,
-  Navigation,
+  Mic,
+  MicOff,
+  Package,
   Radio,
-  RefreshCw,
-  Route,
-  Send,
   Shield,
   Siren,
   Users,
-  Truck,
   X,
-  Zap,
+  XCircle,
 } from "lucide-react";
+import CampusMap from "./components/CampusMap";
+import "./App.css";
 
-import { createIncident } from "./services/api";
+const API_BASE_URL = "http://127.0.0.1:8000";
 
-const agents = [
-  {
-    name: "Incident Intelligence",
-    shortName: "Incident Agent",
-    icon: Bot,
-    status: "Active",
-    description: "Classifying incoming emergency reports",
-  },
-  {
-    name: "Security Response",
-    shortName: "Security Agent",
-    icon: Shield,
-    status: "Active",
-    description: "Coordinating campus security teams",
-  },
-  {
-    name: "Medical Response",
-    shortName: "Medical Agent",
-    icon: Ambulance,
-    status: "Active",
-    description: "Tracking medical resources",
-  },
-  {
-    name: "Transport Coordination",
-    shortName: "Transport Agent",
-    icon: Truck,
-    status: "Standby",
-    description: "Managing emergency vehicles",
-  },
-  {
-    name: "Facilities Response",
-    shortName: "Facilities Agent",
-    icon: Building2,
-    status: "Active",
-    description: "Monitoring infrastructure response",
-  },
-  {
-    name: "Communication",
-    shortName: "Communication Agent",
-    icon: MessageSquare,
-    status: "Active",
-    description: "Preparing emergency notifications",
-  },
-];
+function App({ user, onLogout }) {
+  const isAdmin = user?.role === "admin";
+  const studentName = user?.displayName || user?.name || "Student";
+  const studentEmail = user?.email || "";
+  const studentId = user?.studentId || user?.student_id || "";
 
-const resources = [
-  {
-    name: "Ambulances",
-    available: 2,
-    total: 3,
-    icon: Ambulance,
-    type: "Medical",
-  },
-  {
-    name: "Security Teams",
-    available: 5,
-    total: 7,
-    icon: Shield,
-    type: "Security",
-  },
-  {
-    name: "Campus Vehicles",
-    available: 4,
-    total: 6,
-    icon: Truck,
-    type: "Transport",
-  },
-  {
-    name: "First Aid Units",
-    available: 6,
-    total: 8,
-    icon: Activity,
-    type: "Medical",
-  },
-];
+  const [activePage, setActivePage] = useState("command");
 
-const initialActivity = [
-  {
-    time: "10:42:11",
-    icon: AlertCircle,
-    title: "Incident received",
-    description: "Fire reported at Block C",
-  },
-  {
-    time: "10:42:12",
-    icon: Bot,
-    title: "Incident classified",
-    description: "Fire • Critical • 94% confidence",
-  },
-  {
-    time: "10:42:13",
-    icon: Shield,
-    title: "Security Agent activated",
-    description: "Nearest response team identified",
-  },
-  {
-    time: "10:42:14",
-    icon: Ambulance,
-    title: "Medical Agent activated",
-    description: "Ambulance A1 selected",
-  },
-  {
-    time: "10:42:15",
-    icon: Building2,
-    title: "Facilities Agent activated",
-    description: "Power isolation recommended",
-  },
-  {
-    time: "10:42:16",
-    icon: CheckCircle2,
-    title: "Response plan prepared",
-    description: "Awaiting command approval",
-  },
-];
+  const [incidentHistory, setIncidentHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
-function App() {
-  const [activePage, setActivePage] = useState("Dashboard");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [approved, setApproved] = useState(false);
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
 
-  const [showIncidentModal, setShowIncidentModal] = useState(false);
+  const [approvals, setApprovals] = useState([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
+  const [approvalsError, setApprovalsError] = useState("");
+
+  const [resources, setResources] = useState([]);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [resourcesError, setResourcesError] = useState("");
+
+  const [resourceSummary, setResourceSummary] = useState({
+    total: 0,
+    available: 0,
+    deployed: 0,
+    unavailable: 0,
+  });
+
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [resourceTypeSummary, setResourceTypeSummary] = useState({});
+
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
 
-  const [incident, setIncident] = useState({
-    incident_id: "INC-1042",
-    description:
-      "Fire and heavy smoke reported in Block C. Around 25 students may be trapped.",
-    incident_type: "Fire",
-    severity: "Critical",
-    location: "Block C — 2nd Floor",
-    affected_people: 25,
-    confidence: 94,
-    status: "Awaiting Approval",
-    source: "text",
-  });
+  // Incident image state
+  const [incidentImage, setIncidentImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(true);
 
   const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState("");
+  const [approvalLoading, setApprovalLoading] = useState(false);
 
-  const [activity, setActivity] = useState(initialActivity);
+  const [incidentData, setIncidentData] = useState(null);
+  const [approval, setApproval] = useState(null);
 
-  const navigation = [
-    { name: "Dashboard", icon: Home },
-    { name: "Incidents", icon: Siren, badge: 3 },
-    { name: "Live Map", icon: MapPin },
-    { name: "Resources", icon: Truck },
-    { name: "AI Agents", icon: Bot },
-    { name: "Alerts", icon: Bell, badge: 5 },
-    { name: "Reports", icon: FileText },
-    { name: "Audit Logs", icon: Clock3 },
-  ];
+  const [error, setError] = useState("");
+  const [approvalError, setApprovalError] = useState("");
 
-  const handleCreateIncident = async () => {
-    if (!description.trim()) {
-      setApiError("Please describe the emergency first.");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const [showRejectBox, setShowRejectBox] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+
+  // Admin Panel States
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+
+  const [newResource, setNewResource] = useState({
+    id: "",
+    name: "",
+    type: "",
+    status: "AVAILABLE",
+    location: "",
+    capacity: 1,
+  });
+
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminMessage, setAdminMessage] = useState("");
+  const [adminError, setAdminError] = useState("");
+
+  const handleLogout = async () => {
+    try {
+      if (!isAdmin) {
+        await signOut(auth);
+      }
+
+      if (onLogout) {
+        onLogout();
+      }
+
+      setActivePage("command");
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
+
+  const loadIncidentHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryError("");
+
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/incidents`);
+
+      setIncidentHistory(response.data.incidents || []);
+    } catch (err) {
+      console.error(err);
+
+      setHistoryError(
+        err.response?.data?.detail ||
+          "Unable to load incident history."
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const loadAuditTrail = async () => {
+    setAuditLoading(true);
+    setAuditError("");
+
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/audit`);
+
+      setAuditEvents(response.data.audit_events || []);
+    } catch (err) {
+      console.error("Failed to load audit trail:", err);
+
+      setAuditError(
+        err.response?.data?.detail ||
+          "Unable to load audit trail."
+      );
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const loadApprovals = async () => {
+    if (!isAdmin) {
       return;
     }
 
-    setLoading(true);
-    setApiError("");
+    setApprovalsLoading(true);
+    setApprovalsError("");
 
     try {
-      const data = await createIncident({
-        description,
-        location: location || null,
-        source: "text",
+      const response = await axios.get(
+        `${API_BASE_URL}/api/emergency/approvals`
+      );
+
+      setApprovals(response.data.approvals || []);
+    } catch (err) {
+      console.error("Failed to load approvals:", err);
+
+      setApprovalsError(
+        err.response?.data?.detail ||
+          "Unable to load approvals."
+      );
+    } finally {
+      setApprovalsLoading(false);
+    }
+  };
+
+  const loadResources = async () => {
+    setResourcesLoading(true);
+    setResourcesError("");
+
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/resources`
+      );
+
+      setResources(response.data.resources || []);
+    } catch (error) {
+      console.error("Failed to load resources:", error);
+
+      setResourcesError(
+        error.response?.data?.detail ||
+          "Unable to load resources."
+      );
+    } finally {
+      setResourcesLoading(false);
+    }
+  };
+
+  const loadResourceSummary = async () => {
+    setSummaryLoading(true);
+
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/resources/summary`
+      );
+
+      setResourceSummary({
+        total: response.data.total || 0,
+        available: response.data.available || 0,
+        deployed: response.data.deployed || 0,
+        unavailable: response.data.unavailable || 0,
       });
 
-      setIncident(data);
+      const typeResponse = await axios.get(
+        `${API_BASE_URL}/api/resources/summary/by-type`
+      );
 
-      setActivity((previous) => [
-        {
-          time: new Date().toLocaleTimeString("en-IN", {
-            hour12: false,
-          }),
-          icon: Bot,
-          title: "New incident analyzed",
-          description: `${data.incident_type} • ${data.severity} • ${data.confidence}% confidence`,
-        },
-        ...previous,
-      ]);
-
-      setShowIncidentModal(false);
-      setDescription("");
-      setLocation("");
-      setApproved(false);
+      setResourceTypeSummary(
+        typeResponse.data.summary || {}
+      );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Failed to load resource summary:",
+        error
+      );
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
-      setApiError(
-        "Unable to connect to the backend. Make sure FastAPI is running on port 8000."
+  const handleAddResource = async (e) => {
+    e.preventDefault();
+
+    setAdminLoading(true);
+    setAdminMessage("");
+    setAdminError("");
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/resources`,
+        {
+          id: newResource.id.trim(),
+          name: newResource.name.trim(),
+          type: newResource.type.trim(),
+          status: newResource.status,
+          location: newResource.location.trim(),
+          capacity: Number(newResource.capacity),
+        }
+      );
+
+      if (
+        response.data.success ||
+        response.status === 200 ||
+        response.status === 201
+      ) {
+        setAdminMessage(
+          "Resource added successfully."
+        );
+
+        setNewResource({
+          id: "",
+          name: "",
+          type: "",
+          status: "AVAILABLE",
+          location: "",
+          capacity: 1,
+        });
+
+        await loadResourceSummary();
+
+        if (activePage === "resources") {
+          await loadResources();
+        }
+      }
+    } catch (error) {
+      console.error(
+        "Failed to add resource:",
+        error
+      );
+
+      setAdminError(
+        error.response?.data?.detail ||
+          error.response?.data?.message ||
+          "Failed to add resource."
+      );
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleApprove = async (approvalId) => {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/approve`,
+        {
+          approved_by:
+            "Campus Emergency Commander",
+        }
+      );
+
+      if (response.data.success) {
+        await loadApprovals();
+
+        await loadResources();
+        await loadResourceSummary();
+      }
+    } catch (err) {
+      console.error("Approval failed:", err);
+
+      alert(
+        err.response?.data?.detail ||
+          "Unable to approve emergency response."
+      );
+    }
+  };
+
+  const handleReject = async (approvalId) => {
+    const reason = window.prompt(
+      "Enter rejection reason:"
+    );
+
+    if (!reason || !reason.trim()) {
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/reject`,
+        {
+          rejected_by:
+            "Campus Emergency Commander",
+          reason: reason.trim(),
+        }
+      );
+
+      if (response.data.success) {
+        await loadApprovals();
+      }
+    } catch (err) {
+      console.error("Rejection failed:", err);
+
+      alert(
+        err.response?.data?.detail ||
+          "Unable to reject emergency response."
+      );
+    }
+  };
+
+  const handleNavigation = (page) => {
+    setActivePage(page);
+    setSidebarOpen(false);
+
+    if (page === "incidents") {
+      loadIncidentHistory();
+    }
+
+    if (page === "audit") {
+      loadAuditTrail();
+    }
+
+    if (page === "approvals" && isAdmin) {
+      loadApprovals();
+    }
+
+    if (page === "resources") {
+      loadResources();
+      loadResourceSummary();
+    }
+  };
+
+  // ============================================================
+  // INCIDENT IMAGE HANDLER
+  // ============================================================
+
+  const handleIncidentImage = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      setIncidentImage(null);
+      setImagePreview("");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setError(
+        "Please select a valid image file."
+      );
+
+      setIncidentImage(null);
+      setImagePreview("");
+
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError(
+        "Image must be smaller than 5 MB."
+      );
+
+      setIncidentImage(null);
+      setImagePreview("");
+
+      return;
+    }
+
+    setIncidentImage(file);
+    setError("");
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      setImagePreview(reader.result);
+    };
+
+    reader.onerror = () => {
+      setError(
+        "Unable to read the selected image."
+      );
+
+      setIncidentImage(null);
+      setImagePreview("");
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  // ============================================================
+  // VOICE INPUT
+  // ============================================================
+
+  const startVoiceInput = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceSupported(false);
+
+      setError(
+        "Voice input is not supported in this browser. Please use Google Chrome."
+      );
+
+      return;
+    }
+
+    const recognition =
+      new SpeechRecognition();
+
+    recognition.lang = "en-IN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setError("");
+    };
+
+    recognition.onresult = (event) => {
+      const transcript =
+        event.results[0][0].transcript;
+
+      setDescription((previous) => {
+        if (!previous.trim()) {
+          return transcript;
+        }
+
+        return `${previous.trim()} ${transcript}`;
+      });
+    };
+
+    recognition.onerror = (event) => {
+      console.error(
+        "Voice recognition error:",
+        event.error
+      );
+
+      if (event.error === "not-allowed") {
+        setError(
+          "Microphone permission was denied. Please allow microphone access."
+        );
+      } else {
+        setError(
+          "Unable to recognize your voice. Please try again."
+        );
+      }
+
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
+
+  // ============================================================
+  // ANALYZE EMERGENCY
+  // ============================================================
+
+  const analyzeEmergency = async () => {
+    if (!description.trim()) {
+      setError(
+        "Please describe the emergency."
+      );
+
+      return;
+    }
+
+    if (!location.trim()) {
+      setError(
+        "Please enter the incident location."
+      );
+
+      return;
+    }
+
+    setError("");
+    setApprovalError("");
+    setLoading(true);
+
+    try {
+      let imageData = null;
+
+      // Convert image to Base64
+      if (incidentImage) {
+        imageData = await new Promise(
+          (resolve, reject) => {
+            const reader =
+              new FileReader();
+
+            reader.onload = () => {
+              resolve(reader.result);
+            };
+
+            reader.onerror = () => {
+              reject(
+                new Error(
+                  "Unable to read incident image."
+                )
+              );
+            };
+
+            reader.readAsDataURL(
+              incidentImage
+            );
+          }
+        );
+      }
+
+      // Get currently authenticated Firebase user
+      const currentUser = auth?.currentUser;
+
+      const authenticatedStudentName =
+        currentUser?.displayName ||
+        currentUser?.email?.split("@")[0] ||
+        studentName ||
+        "Student";
+
+      const authenticatedStudentEmail =
+        currentUser?.email ||
+        studentEmail ||
+        "";
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/emergency/respond`,
+        {
+          description:
+            description.trim(),
+
+          location:
+            location.trim(),
+
+          // Firebase student information
+          student_name:
+            authenticatedStudentName,
+
+          student_email:
+            authenticatedStudentEmail,
+
+          // Base64 incident evidence
+          image_data: imageData,
+        }
+      );
+
+      setIncidentData(response.data);
+
+      if (response.data?.approval) {
+        setApproval(
+          response.data.approval
+        );
+      }
+    } catch (err) {
+      console.error(
+        "Emergency analysis failed:",
+        err
+      );
+
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Unable to connect to the emergency backend."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleApprove = () => {
-    setApproved(true);
+  // ============================================================
+  // APPROVE CURRENT RESPONSE
+  // ============================================================
 
-    setIncident((previous) => ({
-      ...previous,
-      status: "Response Approved",
-    }));
+  const approveResponse = async () => {
+    const approvalId =
+      incidentData?.approval?.approval_id;
 
-    setActivity((previous) => [
-      {
-        time: new Date().toLocaleTimeString("en-IN", {
-          hour12: false,
-        }),
-        icon: CheckCircle2,
-        title: "Response approved",
-        description: `Command officer approved ${incident.incident_id}`,
-      },
-      ...previous,
-    ]);
+    if (!approvalId) {
+      setApprovalError(
+        "Approval ID is missing from the incident response."
+      );
+
+      return;
+    }
+
+    setApprovalError("");
+    setApprovalLoading(true);
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/approve`,
+        {
+          approved_by:
+            "Campus Emergency Commander",
+        }
+      );
+
+      setApproval(response.data);
+
+      setIncidentData((previous) => ({
+        ...previous,
+        approval:
+          response.data.approval,
+        audit_events:
+          response.data.audit_events,
+      }));
+
+      // Refresh resource information after deployment
+      await loadResources();
+      await loadResourceSummary();
+    } catch (err) {
+      console.error(err);
+
+      setApprovalError(
+        err.response?.data?.detail ||
+          "Unable to approve the emergency response."
+      );
+    } finally {
+      setApprovalLoading(false);
+    }
   };
 
-  return (
-    <div className="min-h-screen bg-[#020617] text-white">
-      {/* Background */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-cyan-500/5 blur-3xl" />
-        <div className="absolute -right-40 top-1/3 h-96 w-96 rounded-full bg-blue-500/5 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-96 w-96 rounded-full bg-indigo-500/5 blur-3xl" />
-      </div>
+  // ============================================================
+  // REJECT CURRENT RESPONSE
+  // ============================================================
 
-      {/* Mobile overlay */}
-      {mobileMenuOpen && (
+  const rejectResponse = async () => {
+    const approvalId =
+      incidentData?.approval?.approval_id;
+
+    if (!approvalId) {
+      setApprovalError(
+        "Approval ID is missing from the incident response."
+      );
+
+      return;
+    }
+
+    if (!rejectionReason.trim()) {
+      setApprovalError(
+        "Please provide a reason for rejecting the response."
+      );
+
+      return;
+    }
+
+    setApprovalError("");
+    setApprovalLoading(true);
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/reject`,
+        {
+          rejected_by:
+            "Campus Emergency Commander",
+
+          reason:
+            rejectionReason.trim(),
+        }
+      );
+
+      setIncidentData((previous) => ({
+        ...previous,
+        approval:
+          response.data.approval,
+        audit_events:
+          response.data.audit_events,
+      }));
+
+      setApproval(
+        response.data.approval
+      );
+
+      setShowRejectBox(false);
+      setRejectionReason("");
+    } catch (err) {
+      console.error(err);
+
+      setApprovalError(
+        err.response?.data?.detail ||
+          "Unable to reject the emergency response."
+      );
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
+  // ============================================================
+  // RESET INCIDENT
+  // ============================================================
+
+  const resetIncident = () => {
+    setIncidentData(null);
+    setApproval(null);
+
+    setDescription("");
+    setLocation("");
+
+    setIncidentImage(null);
+    setImagePreview("");
+
+    setError("");
+    setApprovalError("");
+
+    setShowRejectBox(false);
+    setRejectionReason("");
+
+    const input =
+      document.getElementById(
+        "incident-image"
+      );
+
+    if (input) {
+      input.value = "";
+    }
+  };
+
+  // ============================================================
+  // DERIVED DATA
+  // ============================================================
+
+  const incident =
+    incidentData?.incident;
+
+  const response =
+    incidentData?.response;
+
+  const currentApproval =
+    incidentData?.approval ||
+    approval?.approval ||
+    approval;
+
+  const agentResponses =
+    response?.agent_responses || {};
+
+  const approvalStatus =
+    currentApproval?.status ||
+    "PENDING";
+
+  const agentIcons = {
+    security: Shield,
+    medical: Ambulance,
+    facilities: Flame,
+    transport: Siren,
+    communication: Bell,
+  };
+
+  const isPending =
+    approvalStatus === "PENDING";
+
+  const isApproved =
+    approvalStatus === "APPROVED";
+
+  const isRejected =
+    approvalStatus === "REJECTED";
+
+  // Deployed resources can come from either approval state
+  // or incidentData approval.
+  const deployedResources =
+    approval?.approval
+      ?.selected_resources ||
+    approval?.selected_resources ||
+    incidentData?.approval
+      ?.selected_resources ||
+    currentApproval?.selected_resources ||
+    [];
+
+  return (
+    <div className="app-shell">
+      {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
+          className="mobile-overlay"
+          onClick={() =>
+            setSidebarOpen(false)
+          }
         />
       )}
 
-      {/* Sidebar */}
+      {/* ======================================================
+          SIDEBAR
+      ====================================================== */}
+
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-white/10 bg-slate-950/95 backdrop-blur-xl transition-transform duration-300 lg:translate-x-0 ${
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        className={`sidebar ${
+          sidebarOpen
+            ? "sidebar-open"
+            : ""
         }`}
       >
-        <div className="flex h-20 items-center justify-between border-b border-white/10 px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10">
-              <Shield className="h-5 w-5 text-cyan-400" />
+        <div className="brand">
+          <div className="brand-icon">
+            <Siren size={24} />
+          </div>
+
+          <div>
+            <div className="brand-name">
+              AegisCampus
             </div>
 
-            <div>
-              <h1 className="text-lg font-bold tracking-wide">
-                Aegis<span className="text-cyan-400">Campus</span>
-              </h1>
-
-              <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500">
-                AI Command Center
-              </p>
+            <div className="brand-subtitle">
+              AI COMMAND CENTER
             </div>
           </div>
 
           <button
-            className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white lg:hidden"
-            onClick={() => setMobileMenuOpen(false)}
+            className="mobile-close"
+            onClick={() =>
+              setSidebarOpen(false)
+            }
           >
-            <X className="h-5 w-5" />
+            <X size={20} />
           </button>
         </div>
 
-        <div className="px-4 py-5">
-          <div className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Command
-          </div>
-
-          <nav className="space-y-1">
-            {navigation.map((item) => {
-              const Icon = item.icon;
-              const isActive = activePage === item.name;
-
-              return (
-                <button
-                  key={item.name}
-                  onClick={() => {
-                    setActivePage(item.name);
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`group flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm transition-all ${
-                    isActive
-                      ? "border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"
-                      : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Icon
-                      className={`h-4 w-4 ${
-                        isActive
-                          ? "text-cyan-400"
-                          : "text-slate-500 group-hover:text-slate-300"
-                      }`}
-                    />
-
-                    <span>{item.name}</span>
-                  </div>
-
-                  {item.badge && (
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        isActive
-                          ? "bg-cyan-400/20 text-cyan-300"
-                          : "bg-white/10 text-slate-400"
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
+        <div className="system-status">
+          <span className="status-dot" />
+          <span>
+            System Operational
+          </span>
         </div>
 
-        <div className="mt-auto p-4">
-          <div className="rounded-2xl border border-emerald-400/10 bg-emerald-400/5 p-4">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+        <nav className="sidebar-nav">
+          <button
+            className={`nav-item ${
+              activePage === "command"
+                ? "active"
+                : ""
+            }`}
+            onClick={() =>
+              handleNavigation("command")
+            }
+          >
+            <LayoutDashboard size={19} />
+            <span>
+              Command Center
+            </span>
+          </button>
 
-              <span className="text-xs font-semibold text-emerald-400">
-                ALL SYSTEMS OPERATIONAL
-              </span>
-            </div>
+          <button
+            className={`nav-item ${
+              activePage === "incidents"
+                ? "active"
+                : ""
+            }`}
+            onClick={() =>
+              handleNavigation("incidents")
+            }
+          >
+            <AlertTriangle size={19} />
+            <span>Incidents</span>
+          </button>
 
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              Emergency coordination services are connected and ready.
-            </p>
+          <button
+            className={`nav-item ${
+              activePage === "resources"
+                ? "active"
+                : ""
+            }`}
+            onClick={() =>
+              handleNavigation("resources")
+            }
+          >
+            <Users size={19} />
+            <span>Resources</span>
+          </button>
+
+          {isAdmin && (
+            <button
+              className={`nav-item ${
+                activePage === "approvals"
+                  ? "active"
+                  : ""
+              }`}
+              onClick={() =>
+                handleNavigation(
+                  "approvals"
+                )
+              }
+            >
+              <CheckCircle2 size={19} />
+              <span>Approvals</span>
+            </button>
+          )}
+
+          <button
+            className={`nav-item ${
+              activePage === "audit"
+                ? "active"
+                : ""
+            }`}
+            onClick={() =>
+              handleNavigation("audit")
+            }
+          >
+            <ClipboardList size={19} />
+            <span>Audit Trail</span>
+          </button>
+
+          <button
+            className={`nav-item ${
+              activePage === "map"
+                ? "active"
+                : ""
+            }`}
+            onClick={() =>
+              handleNavigation("map")
+            }
+          >
+            <Map size={19} />
+            <span>Campus Map</span>
+          </button>
+        </nav>
+
+        <div className="sidebar-user">
+          <div className="sidebar-user-avatar">
+            {user?.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt="Profile"
+              />
+            ) : (
+              <Users size={20} />
+            )}
           </div>
 
-          <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 text-xs font-bold">
-              CO
-            </div>
+          <div className="sidebar-user-info">
+            <strong>
+              {isAdmin
+                ? user?.username ||
+                  "Administrator"
+                : studentName}
+            </strong>
 
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-white">
-                Command Officer
-              </p>
+            <span>
+              {isAdmin
+                ? "Administrator"
+                : "Student"}
+            </span>
+          </div>
 
-              <p className="text-[10px] text-slate-500">
-                Emergency Control
-              </p>
-            </div>
+          <button
+            type="button"
+            className="logout-button"
+            onClick={handleLogout}
+            title="Logout"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+
+        <div className="sidebar-footer">
+          <div className="ai-status">
+            <Radio size={16} />
+
+            <span>
+              Multi-Agent AI
+            </span>
+
+            <span className="online-label">
+              ONLINE
+            </span>
+          </div>
+
+          <div className="version">
+            AegisCampus AI v1.0
           </div>
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="relative min-h-screen lg:pl-72">
-        {/* Topbar */}
-        <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-white/10 bg-slate-950/80 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <button
-              className="rounded-xl border border-white/10 bg-white/5 p-2.5 text-slate-300 lg:hidden"
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+      {/* ======================================================
+          MAIN CONTENT
+      ====================================================== */}
 
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">{activePage}</h2>
+      <main className="main-content">
+        <header className="topbar">
+          <button
+            className="menu-button"
+            onClick={() =>
+              setSidebarOpen(true)
+            }
+          >
+            <Menu size={22} />
+          </button>
 
-                <span className="hidden rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider text-cyan-400 sm:inline">
-                  Live
-                </span>
-              </div>
+          <div>
+            <div className="topbar-title">
+              Emergency Command Center
+            </div>
 
-              <p className="text-xs text-slate-500">
-                Vignan University • Emergency Operations Center
-              </p>
+            <div className="topbar-subtitle">
+              Multi-Agent Campus Safety
+              Operations
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 sm:flex">
-              <Radio className="h-3.5 w-3.5 text-emerald-400" />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              marginLeft: "auto",
+            }}
+          >
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdminPanel(
+                    (previous) =>
+                      !previous
+                  );
 
-              <span className="text-[11px] text-slate-400">
-                Live monitoring
+                  setAdminMessage("");
+                  setAdminError("");
+                }}
+                className="admin-button"
+              >
+                Admin Resource Management
+              </button>
+            )}
+
+            <div
+              className="user-info"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "600",
+                }}
+              >
+                {isAdmin
+                  ? user?.username ||
+                    "Administrator"
+                  : studentName}
               </span>
 
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+              <span
+                style={{
+                  fontSize: "12px",
+                  opacity: 0.7,
+                }}
+              >
+                (
+                {isAdmin
+                  ? "Administrator"
+                  : "Student"}
+                )
+              </span>
             </div>
 
-            <button className="relative rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-slate-400 transition hover:bg-white/10 hover:text-white">
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-500" />
-            </button>
+            <div className="topbar-status">
+              <span className="status-dot" />
+              LIVE
+            </div>
           </div>
         </header>
 
-        {/* Content */}
-        <div className="p-4 sm:p-6 lg:p-8">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end"
-          >
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+        <div className="dashboard">
+          {/* ==================================================
+              ADMIN RESOURCE PANEL
+          ================================================== */}
 
-                <span className="text-xs font-medium uppercase tracking-widest text-emerald-400">
-                  Command Center Online
-                </span>
-              </div>
-
-              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                Emergency Operations Dashboard
-              </h1>
-
-              <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                AI-powered incident intelligence, resource coordination and
-                response management.
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setShowIncidentModal(true);
-                setApiError("");
-              }}
-              className="flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-5 py-3 text-xs font-bold text-slate-950 transition hover:bg-cyan-300"
-            >
-              <Siren className="h-4 w-4" />
-              Report Emergency
-            </button>
-          </motion.div>
-
-          {/* KPI */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              icon={Siren}
-              label="Active Incidents"
-              value="03"
-              detail="1 critical"
-              status="critical"
-            />
-
-            <StatCard
-              icon={Users}
-              label="People Affected"
-              value={incident.affected_people || "36"}
-              detail="Current incident"
-              status="warning"
-            />
-
-            <StatCard
-              icon={Activity}
-              label="Resources Ready"
-              value="17"
-              detail="of 24 resources"
-              status="success"
-            />
-
-            <StatCard
-              icon={Zap}
-              label="AI Agents"
-              value="06"
-              detail="5 active • 1 standby"
-              status="info"
-            />
-          </div>
-
-          {/* Main grid */}
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-            {/* Map */}
-            <motion.section
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025]"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-cyan-400" />
-
-                    <h3 className="text-sm font-semibold">
-                      Campus Live Map
-                    </h3>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Real-time incidents and resource locations
-                  </p>
-                </div>
-
-                <button className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-[10px] text-slate-400 hover:bg-white/5 hover:text-white">
-                  <Navigation className="h-3 w-3" />
-                  Full Map
-                </button>
-              </div>
-
-              <div className="relative h-[390px] overflow-hidden bg-[#07111f]">
-                <div
-                  className="absolute inset-0 opacity-20"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(rgba(148,163,184,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.15) 1px, transparent 1px)",
-                    backgroundSize: "42px 42px",
-                  }}
-                />
-
-                <div className="absolute left-[10%] top-[45%] h-3 w-[80%] rotate-[-12deg] rounded-full bg-slate-700/70" />
-                <div className="absolute left-[25%] top-[15%] h-[75%] w-3 rotate-[10deg] rounded-full bg-slate-700/60" />
-                <div className="absolute left-[5%] top-[68%] h-2 w-[90%] rotate-[5deg] rounded-full bg-slate-700/50" />
-
-                <MapBuilding
-                  className="left-[13%] top-[18%]"
-                  label="Block A"
-                />
-
-                <MapBuilding
-                  className="left-[52%] top-[17%]"
-                  label="Block B"
-                />
-
-                <MapBuilding
-                  className="left-[52%] top-[55%]"
-                  label={incident.location || "Block C"}
-                  danger
-                />
-
-                <MapBuilding
-                  className="left-[13%] top-[55%]"
-                  label="Admin"
-                />
-
-                <MapMarker
-                  className="left-[62%] top-[64%]"
-                  type="danger"
-                  label={incident.incident_id}
-                />
-
-                <MapMarker
-                  className="left-[76%] top-[29%]"
-                  type="medical"
-                  label="A1"
-                />
-
-                <MapMarker
-                  className="left-[30%] top-[34%]"
-                  type="security"
-                  label="S1"
-                />
-
-                <MapMarker
-                  className="left-[31%] top-[76%]"
-                  type="vehicle"
-                  label="V1"
-                />
-
-                <div className="absolute bottom-4 left-4 rounded-xl border border-white/10 bg-slate-950/80 p-3 backdrop-blur-md">
-                  <p className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-slate-500">
-                    Live Legend
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    <Legend color="bg-red-400" label="Incident" />
-                    <Legend color="bg-emerald-400" label="Medical" />
-                    <Legend color="bg-blue-400" label="Security" />
-                    <Legend color="bg-amber-400" label="Vehicle" />
-                  </div>
-                </div>
-
-                <div className="absolute right-4 top-4 flex items-center gap-2 rounded-lg border border-emerald-400/20 bg-slate-950/80 px-3 py-2 backdrop-blur-md">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-
-                  <span className="text-[10px] text-emerald-400">
-                    LIVE DATA
-                  </span>
-                </div>
-              </div>
-            </motion.section>
-
-            {/* Incident */}
-            <motion.section
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="rounded-2xl border border-red-400/20 bg-gradient-to-br from-red-500/[0.08] to-transparent"
-            >
-              <div className="border-b border-red-400/10 px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10">
-                      <Siren className="h-4 w-4 text-red-400" />
-                    </span>
-
-                    <div>
-                      <h3 className="text-sm font-semibold">
-                        Active Incident
-                      </h3>
-
-                      <p className="text-[10px] text-slate-500">
-                        AI analyzed emergency
-                      </p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${
-                      incident.severity === "Critical"
-                        ? "border border-red-400/20 bg-red-400/10 text-red-400"
-                        : "border border-amber-400/20 bg-amber-400/10 text-amber-400"
-                    }`}
-                  >
-                    {incident.severity}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-5">
-                <div className="flex items-start justify-between">
+          {isAdmin &&
+            showAdminPanel && (
+              <section
+                className="admin-panel panel"
+                style={{
+                  marginBottom: "24px",
+                }}
+              >
+                <div className="admin-panel-header panel-heading">
                   <div>
-                    <p className="text-xl font-bold">
-                      {incident.incident_type} Incident
-                    </p>
-
-                    <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-                      <MapPin className="h-3.5 w-3.5 text-red-400" />
-                      {incident.location}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-[9px] uppercase tracking-widest text-slate-500">
-                      Incident ID
-                    </p>
-
-                    <p className="mt-1 font-mono text-xs text-slate-300">
-                      {incident.incident_id}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid grid-cols-3 gap-2">
-                  <MiniMetric
-                    label="Affected"
-                    value={`~${incident.affected_people}`}
-                  />
-
-                  <MiniMetric
-                    label="Confidence"
-                    value={`${incident.confidence}%`}
-                  />
-
-                  <MiniMetric
-                    label="Status"
-                    value={approved ? "Approved" : "Pending"}
-                  />
-                </div>
-
-                <div className="mt-5 rounded-xl border border-white/10 bg-black/10 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Bot className="h-4 w-4 text-cyan-400" />
-
-                      <span className="text-xs font-semibold">
-                        AI Response Recommendation
-                      </span>
-                    </div>
-
-                    <span className="text-[9px] text-emerald-400">
-                      READY
-                    </span>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    <Recommendation
-                      icon={Shield}
-                      text="Dispatch Security Team S1"
-                    />
-
-                    <Recommendation
-                      icon={Ambulance}
-                      text="Dispatch Ambulance A1"
-                    />
-
-                    <Recommendation
-                      icon={Building2}
-                      text="Facilities Team F1 → Power Isolation"
-                    />
-
-                    <Recommendation
-                      icon={Route}
-                      text="Evacuate via North Exit"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center gap-2">
-                  <button
-                    onClick={handleApprove}
-                    disabled={approved}
-                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold transition ${
-                      approved
-                        ? "border border-emerald-400/30 bg-emerald-400/10 text-emerald-400"
-                        : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
-                    }`}
-                  >
-                    {approved ? (
-                      <>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Response Approved
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Approve Response
-                      </>
-                    )}
-                  </button>
-
-                  <button className="rounded-xl border border-white/10 px-4 py-3 text-slate-400 transition hover:bg-white/5 hover:text-white">
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </motion.section>
-          </div>
-
-          {/* Agents + Activity */}
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <motion.section className="rounded-2xl border border-white/10 bg-white/[0.025]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4 text-cyan-400" />
-
-                    <h3 className="text-sm font-semibold">
-                      AI Agent Network
-                    </h3>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Multi-agent emergency coordination
-                  </p>
-                </div>
-
-                <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-[9px] font-semibold text-emerald-400">
-                  5 ACTIVE
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2">
-                {agents.map((agent) => (
-                  <AgentCard key={agent.name} agent={agent} />
-                ))}
-              </div>
-            </motion.section>
-
-            <motion.section className="rounded-2xl border border-white/10 bg-white/[0.025]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-cyan-400" />
-
-                    <h3 className="text-sm font-semibold">
-                      Live Agent Activity
-                    </h3>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Latest decisions and system events
-                  </p>
-                </div>
-
-                <button className="text-[10px] text-cyan-400 hover:text-cyan-300">
-                  View all
-                </button>
-              </div>
-
-              <div className="p-4">
-                <div className="relative">
-                  <div className="absolute bottom-5 left-[15px] top-5 w-px bg-white/10" />
-
-                  <div className="space-y-4">
-                    {activity.map((item, index) => {
-                      const Icon = item.icon;
-
-                      return (
-                        <div
-                          key={`${item.time}-${index}`}
-                          className="relative flex gap-3"
-                        >
-                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950">
-                            <Icon className="h-3.5 w-3.5 text-cyan-400" />
-                          </div>
-
-                          <div className="min-w-0 flex-1 pt-0.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-medium text-slate-200">
-                                {item.title}
-                              </p>
-
-                              <span className="font-mono text-[9px] text-slate-600">
-                                {item.time}
-                              </span>
-                            </div>
-
-                            <p className="mt-1 text-[10px] text-slate-500">
-                              {item.description}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </motion.section>
-          </div>
-
-          {/* Resources */}
-          <motion.section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.025]">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-cyan-400" />
-
-                  <h3 className="text-sm font-semibold">
-                    Emergency Resource Availability
-                  </h3>
-                </div>
-
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Current campus response capacity
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
-              {resources.map((resource) => (
-                <ResourceCard key={resource.name} resource={resource} />
-              ))}
-            </div>
-          </motion.section>
-
-          <footer className="mt-8 flex flex-col justify-between gap-2 border-t border-white/5 pt-5 text-[10px] text-slate-600 sm:flex-row">
-            <p>
-              AegisCampus AI • Emergency Response & Resource Coordination
-            </p>
-
-            <div className="flex items-center gap-4">
-              <span>System v0.1</span>
-
-              <span className="flex items-center gap-1.5 text-emerald-500/70">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Operational
-              </span>
-            </div>
-          </footer>
-        </div>
-      </main>
-
-      {/* Emergency modal */}
-      <AnimatePresence>
-        {showIncidentModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-950 shadow-2xl"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/10">
-                    <Siren className="h-5 w-5 text-red-400" />
-                  </div>
-
-                  <div>
-                    <h2 className="font-semibold">
-                      Report Emergency
+                    <h2>
+                      Admin Resource Management
                     </h2>
 
-                    <p className="text-[10px] text-slate-500">
-                      AI will analyze the incident
+                    <p>
+                      Add and manage campus
+                      emergency resources.
                     </p>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowAdminPanel(false)
+                    }
+                    className="admin-close-button secondary-button"
+                  >
+                    Close
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => setShowIncidentModal(false)}
-                  className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white"
+                <form
+                  onSubmit={handleAddResource}
+                  className="admin-resource-form"
                 >
-                  <X className="h-5 w-5" />
-                </button>
+                  <div className="form-group">
+                    <label>
+                      Resource ID
+                    </label>
+
+                    <input
+                      type="text"
+                      placeholder="Example: SEC-003"
+                      value={newResource.id}
+                      onChange={(e) =>
+                        setNewResource({
+                          ...newResource,
+                          id: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>
+                      Resource Name
+                    </label>
+
+                    <input
+                      type="text"
+                      placeholder="Example: Security Team Charlie"
+                      value={newResource.name}
+                      onChange={(e) =>
+                        setNewResource({
+                          ...newResource,
+                          name: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>
+                      Resource Type
+                    </label>
+
+                    <select
+                      value={newResource.type}
+                      onChange={(e) =>
+                        setNewResource({
+                          ...newResource,
+                          type: e.target.value,
+                        })
+                      }
+                      required
+                    >
+                      <option value="">
+                        Select type
+                      </option>
+
+                      <option value="Security">
+                        Security
+                      </option>
+
+                      <option value="Medical">
+                        Medical
+                      </option>
+
+                      <option value="First Aid">
+                        First Aid
+                      </option>
+
+                      <option value="Facilities">
+                        Facilities
+                      </option>
+
+                      <option value="Transport">
+                        Transport
+                      </option>
+
+                      <option value="Communication">
+                        Communication
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Status</label>
+
+                    <select
+                      value={newResource.status}
+                      onChange={(e) =>
+                        setNewResource({
+                          ...newResource,
+                          status:
+                            e.target.value,
+                        })
+                      }
+                    >
+                      <option value="AVAILABLE">
+                        AVAILABLE
+                      </option>
+
+                      <option value="UNAVAILABLE">
+                        UNAVAILABLE
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>
+                      Location
+                    </label>
+
+                    <input
+                      type="text"
+                      placeholder="Example: North Gate"
+                      value={
+                        newResource.location
+                      }
+                      onChange={(e) =>
+                        setNewResource({
+                          ...newResource,
+                          location:
+                            e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>
+                      Capacity
+                    </label>
+
+                    <input
+                      type="number"
+                      min="1"
+                      value={
+                        newResource.capacity
+                      }
+                      onChange={(e) =>
+                        setNewResource({
+                          ...newResource,
+                          capacity:
+                            e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+
+                  {adminMessage && (
+                    <div
+                      className="admin-success"
+                      style={{
+                        color: "#10b981",
+                        margin: "8px 0",
+                      }}
+                    >
+                      {adminMessage}
+                    </div>
+                  )}
+
+                  {adminError && (
+                    <div
+                      className="admin-error error-box"
+                      style={{
+                        margin: "8px 0",
+                      }}
+                    >
+                      <AlertTriangle size={18} />
+                      <span>
+                        {adminError}
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={adminLoading}
+                    className="admin-submit-button analyze-button"
+                    style={{
+                      marginTop: "12px",
+                    }}
+                  >
+                    {adminLoading
+                      ? "Adding Resource..."
+                      : "Add Resource"}
+                  </button>
+                </form>
+              </section>
+            )}
+
+          {/* ==================================================
+              INCIDENT HISTORY
+          ================================================== */}
+
+          {activePage === "incidents" ? (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    Incident History
+                  </h2>
+
+                  <p>
+                    Previous emergency incidents
+                    stored in MongoDB.
+                  </p>
+                </div>
+
+                <AlertTriangle size={21} />
               </div>
 
-              <div className="space-y-4 p-5">
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-slate-300">
-                    What happened?
-                  </label>
+              {historyLoading && (
+                <div className="empty-state">
+                  <span className="spinner" />
 
-                  <textarea
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    placeholder="Example: There is heavy smoke and fire in Block C. Around 25 students may be trapped."
-                    className="h-32 w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/40"
-                  />
+                  <p>
+                    Loading incident
+                    history...
+                  </p>
                 </div>
+              )}
 
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-slate-300">
-                    Location
-                  </label>
+              {historyError && (
+                <div className="error-box">
+                  <AlertTriangle size={18} />
 
-                  <input
-                    value={location}
-                    onChange={(event) => setLocation(event.target.value)}
-                    placeholder="Example: Block C — 2nd Floor"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/40"
-                  />
+                  <span>
+                    {historyError}
+                  </span>
                 </div>
+              )}
 
-                {apiError && (
-                  <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-400">
-                    {apiError}
+              {!historyLoading &&
+                !historyError &&
+                incidentHistory.length ===
+                  0 && (
+                  <div className="empty-state">
+                    <div className="empty-icon">
+                      <AlertTriangle
+                        size={30}
+                      />
+                    </div>
+
+                    <h2>
+                      No Incidents Yet
+                    </h2>
+
+                    <p>
+                      Emergency incidents
+                      will appear here after
+                      they are analyzed.
+                    </p>
                   </div>
                 )}
 
-                <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/5 p-4">
-                  <div className="flex gap-3">
-                    <Bot className="h-5 w-5 shrink-0 text-cyan-400" />
+              {!historyLoading &&
+                incidentHistory.length >
+                  0 && (
+                  <div className="resource-list">
+                    {incidentHistory.map(
+                      (item) => (
+                        <div
+                          className="resource-row"
+                          key={
+                            item.incident_id
+                          }
+                        >
+                          <div className="resource-symbol">
+                            <AlertTriangle
+                              size={17}
+                            />
+                          </div>
 
-                    <div>
-                      <p className="text-xs font-semibold text-cyan-300">
-                        AI Incident Intelligence
-                      </p>
+                          <div
+                            style={{
+                              flex: 1,
+                            }}
+                          >
+                            <strong>
+                              {item.incident_type ||
+                                "Incident"}
+                            </strong>
 
-                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
-                        The system will classify the emergency, estimate
-                        severity and identify affected people.
-                      </p>
+                            <div>
+                              ID:{" "}
+                              {
+                                item.incident_id
+                              }
+                            </div>
+
+                            <div>
+                              📍{" "}
+                              {item.location ||
+                                "Unknown location"}
+                            </div>
+
+                            <div>
+                              👥 Affected
+                              people:{" "}
+                              {item.affected_people ??
+                                "Unknown"}
+                            </div>
+
+                            <div>
+                              🕐{" "}
+                              {item.created_at
+                                ? new Date(
+                                    item.created_at
+                                  ).toLocaleString()
+                                : "Unknown time"}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              flexDirection:
+                                "column",
+                              alignItems:
+                                "flex-end",
+                              gap: "6px",
+                            }}
+                          >
+                            <span className="available">
+                              {item.severity ||
+                                "UNKNOWN"}
+                            </span>
+
+                            <span>
+                              {item.status ||
+                                "UNKNOWN"}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+            </section>
+          ) : activePage === "audit" ? (
+            /* ==================================================
+               AUDIT TRAIL
+            ================================================== */
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    Audit Trail
+                  </h2>
+
+                  <p>
+                    Complete emergency activity
+                    history stored in MongoDB.
+                  </p>
+                </div>
+
+                <ClipboardList size={21} />
+              </div>
+
+              {auditLoading && (
+                <div className="empty-state">
+                  <span className="spinner" />
+
+                  <p>
+                    Loading audit history...
+                  </p>
+                </div>
+              )}
+
+              {auditError && (
+                <div className="error-box">
+                  <AlertTriangle size={18} />
+
+                  <span>
+                    {auditError}
+                  </span>
+                </div>
+              )}
+
+              {!auditLoading &&
+                !auditError &&
+                auditEvents.length ===
+                  0 && (
+                  <div className="empty-state">
+                    <div className="empty-icon">
+                      <ClipboardList
+                        size={30}
+                      />
+                    </div>
+
+                    <h2>
+                      No Audit Events
+                    </h2>
+
+                    <p>
+                      Emergency workflow events
+                      will appear here.
+                    </p>
+                  </div>
+                )}
+
+              {!auditLoading &&
+                !auditError &&
+                auditEvents.length >
+                  0 && (
+                  <div className="audit-list">
+                    {auditEvents.map(
+                      (event) => (
+                        <div
+                          className="audit-row"
+                          key={
+                            event.event_id
+                          }
+                        >
+                          <div className="audit-dot" />
+
+                          <div className="audit-content">
+                            <strong>
+                              {
+                                event.event_type
+                              }
+                            </strong>
+
+                            <p>
+                              {event.message}
+                            </p>
+
+                            <small>
+                              Incident:{" "}
+                              {
+                                event.incident_id
+                              }
+                            </small>
+
+                            <small>
+                              {event.timestamp
+                                ? new Date(
+                                    event.timestamp
+                                  ).toLocaleString()
+                                : ""}
+                            </small>
+                          </div>
+
+                          <span className="audit-actor">
+                            {event.actor}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+            </section>
+          ) : activePage ===
+              "approvals" &&
+            isAdmin ? (
+            /* ==================================================
+               ADMIN APPROVALS
+            ================================================== */
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    Emergency Approvals
+                  </h2>
+
+                  <p>
+                    Human authorization requests
+                    from the emergency command
+                    system.
+                  </p>
+                </div>
+
+                <Shield size={21} />
+              </div>
+
+              {approvalsLoading && (
+                <div className="empty-state">
+                  <span className="spinner" />
+
+                  <p>
+                    Loading approvals...
+                  </p>
+                </div>
+              )}
+
+              {approvalsError && (
+                <div className="error-box">
+                  <AlertTriangle size={18} />
+
+                  <span>
+                    {approvalsError}
+                  </span>
+                </div>
+              )}
+
+              {!approvalsLoading &&
+                !approvalsError &&
+                approvals.length ===
+                  0 && (
+                  <div className="empty-state">
+                    <div className="empty-icon">
+                      <Shield size={30} />
+                    </div>
+
+                    <h2>
+                      No Approval Requests
+                    </h2>
+
+                    <p>
+                      New emergency approval
+                      requests will appear here.
+                    </p>
+                  </div>
+                )}
+
+              {!approvalsLoading &&
+                !approvalsError &&
+                approvals.length >
+                  0 && (
+                  <div className="approval-list">
+                    {approvals.map(
+                      (approvalItem) => {
+                        const incidentDetails =
+                          approvalItem
+                            .response_plan
+                            ?.incident_details ||
+                          {};
+
+                        const approvalImage =
+                          incidentDetails.image_data ||
+                          incidentDetails.image ||
+                          approvalItem.image_data ||
+                          "";
+
+                        return (
+                          <div
+                            className="approval-card"
+                            key={
+                              approvalItem.approval_id
+                            }
+                          >
+                            <div className="approval-card-header">
+                              <div>
+                                <h3>
+                                  {
+                                    approvalItem.approval_id
+                                  }
+                                </h3>
+
+                                <p>
+                                  Incident:{" "}
+                                  {
+                                    approvalItem.incident_id
+                                  }
+                                </p>
+                              </div>
+
+                              <span
+                                className={`status-badge ${
+                                  approvalItem.status?.toLowerCase()
+                                }`}
+                              >
+                                {
+                                  approvalItem.status
+                                }
+                              </span>
+                            </div>
+
+                            {/* STUDENT INFORMATION */}
+
+                            {(incidentDetails.student_name ||
+                              incidentDetails.student_email ||
+                              incidentDetails.description ||
+                              incidentDetails.location) && (
+                              <div className="approval-incident-details">
+                                {incidentDetails.student_name && (
+                                  <div className="approval-student-info">
+                                    <span>
+                                      Reported By
+                                    </span>
+
+                                    <strong>
+                                      {
+                                        incidentDetails.student_name
+                                      }
+                                    </strong>
+                                  </div>
+                                )}
+
+                                {incidentDetails.student_email && (
+                                  <div className="approval-student-info">
+                                    <span>
+                                      Student Email
+                                    </span>
+
+                                    <strong>
+                                      {
+                                        incidentDetails.student_email
+                                      }
+                                    </strong>
+                                  </div>
+                                )}
+
+                                {incidentDetails.location && (
+                                  <div className="approval-student-info">
+                                    <span>
+                                      Incident Location
+                                    </span>
+
+                                    <strong>
+                                      {
+                                        incidentDetails.location
+                                      }
+                                    </strong>
+                                  </div>
+                                )}
+
+                                {incidentDetails.description && (
+                                  <div className="approval-incident-description">
+                                    <span>
+                                      Incident
+                                      Description
+                                    </span>
+
+                                    <p>
+                                      {
+                                        incidentDetails.description
+                                      }
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* INCIDENT IMAGE */}
+
+                            {approvalImage && (
+                              <div className="approval-incident-image">
+                                <div className="approval-image-label">
+                                  Incident
+                                  Evidence
+                                </div>
+
+                                <img
+                                  src={
+                                    approvalImage
+                                  }
+                                  alt="Incident evidence"
+                                />
+                              </div>
+                            )}
+
+                            <div className="approval-details">
+                              <div>
+                                <span>
+                                  Priority
+                                </span>
+
+                                <strong>
+                                  {
+                                    approvalItem.priority
+                                  }
+                                </strong>
+                              </div>
+
+                              <div>
+                                <span>
+                                  Requested By
+                                </span>
+
+                                <strong>
+                                  {
+                                    approvalItem.requested_by
+                                  }
+                                </strong>
+                              </div>
+
+                              <div>
+                                <span>
+                                  Requested At
+                                </span>
+
+                                <strong>
+                                  {approvalItem.requested_at
+                                    ? new Date(
+                                        approvalItem.requested_at
+                                      ).toLocaleString()
+                                    : "-"}
+                                </strong>
+                              </div>
+                            </div>
+
+                            <div className="approval-resources">
+                              <h4>
+                                Selected Resources
+                              </h4>
+
+                              <div className="resource-tags">
+                                {(
+                                  approvalItem.selected_resources ||
+                                  []
+                                ).map(
+                                  (
+                                    resource
+                                  ) => (
+                                    <span
+                                      key={
+                                        resource
+                                      }
+                                      className="resource-tag"
+                                    >
+                                      {
+                                        resource
+                                      }
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            </div>
+
+                            {approvalItem.status ===
+                              "PENDING" && (
+                              <div className="approval-actions">
+                                <button
+                                  className="approve-button"
+                                  onClick={() =>
+                                    handleApprove(
+                                      approvalItem.approval_id
+                                    )
+                                  }
+                                >
+                                  <CheckCircle2
+                                    size={17}
+                                  />
+
+                                  Approve
+                                </button>
+
+                                <button
+                                  className="reject-button"
+                                  onClick={() =>
+                                    handleReject(
+                                      approvalItem.approval_id
+                                    )
+                                  }
+                                >
+                                  <XCircle
+                                    size={17}
+                                  />
+
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+
+                            {approvalItem.status ===
+                              "APPROVED" && (
+                              <div className="approval-result approved">
+                                <CheckCircle2
+                                  size={18}
+                                />
+
+                                <span>
+                                  Approved by{" "}
+                                  {approvalItem.approved_by ||
+                                    "Commander"}
+                                </span>
+                              </div>
+                            )}
+
+                            {approvalItem.status ===
+                              "REJECTED" && (
+                              <div className="approval-result rejected">
+                                <XCircle
+                                  size={18}
+                                />
+
+                                <span>
+                                  Rejected:{" "}
+                                  {approvalItem.rejection_reason ||
+                                    "No reason provided"}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                    )}
+                  </div>
+                )}
+            </section>
+          ) : activePage ===
+            "resources" ? (
+            /* ==================================================
+               RESOURCES
+            ================================================== */
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    Emergency Resources
+                  </h2>
+
+                  <p>
+                    Live resources available
+                    across the campus.
+                  </p>
+                </div>
+
+                <Package size={22} />
+              </div>
+
+              <div className="resource-summary-grid">
+                <div className="summary-card">
+                  <div className="summary-card-label">
+                    Total Resources
+                  </div>
+
+                  <div className="summary-card-value">
+                    {summaryLoading
+                      ? "..."
+                      : resourceSummary.total}
+                  </div>
+                </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-label">
+                    Available
+                  </div>
+
+                  <div className="summary-card-value">
+                    {summaryLoading
+                      ? "..."
+                      : resourceSummary.available}
+                  </div>
+                </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-label">
+                    Deployed
+                  </div>
+
+                  <div className="summary-card-value">
+                    {summaryLoading
+                      ? "..."
+                      : resourceSummary.deployed}
+                  </div>
+                </div>
+
+                <div className="summary-card">
+                  <div className="summary-card-label">
+                    Unavailable
+                  </div>
+
+                  <div className="summary-card-value">
+                    {summaryLoading
+                      ? "..."
+                      : resourceSummary.unavailable}
+                  </div>
+                </div>
+              </div>
+
+              <div className="resource-type-summary">
+                {Object.entries(
+                  resourceTypeSummary
+                ).map(
+                  ([type, summary]) => (
+                    <div
+                      className="resource-type-card"
+                      key={type}
+                    >
+                      <div className="resource-type-header">
+                        <Package size={18} />
+
+                        <h3>{type}</h3>
+                      </div>
+
+                      <div className="resource-type-stats">
+                        <div>
+                          <span>
+                            Total
+                          </span>
+
+                          <strong>
+                            {summary.total}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span>
+                            Available
+                          </span>
+
+                          <strong>
+                            {summary.available}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span>
+                            Deployed
+                          </span>
+
+                          <strong>
+                            {summary.deployed}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span>
+                            Unavailable
+                          </span>
+
+                          <strong>
+                            {summary.unavailable}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+
+              {resourcesLoading && (
+                <div className="empty-state">
+                  <p>
+                    Loading resources...
+                  </p>
+                </div>
+              )}
+
+              {resourcesError && (
+                <div className="error-box">
+                  <AlertTriangle size={18} />
+
+                  <span>
+                    {resourcesError}
+                  </span>
+                </div>
+              )}
+
+              {!resourcesLoading &&
+                !resourcesError &&
+                resources.length ===
+                  0 && (
+                  <div className="empty-state">
+                    <Package size={30} />
+
+                    <h3>
+                      No resources found
+                    </h3>
+
+                    <p>
+                      Resources added by the
+                      administrator will
+                      appear here.
+                    </p>
+                  </div>
+                )}
+
+              {!resourcesLoading &&
+                resources.length >
+                  0 && (
+                  <div className="resource-grid">
+                    {resources.map(
+                      (resource) => (
+                        <div
+                          className="resource-card"
+                          key={resource.id}
+                        >
+                          <div className="resource-card-top">
+                            <div className="resource-icon">
+                              <Package
+                                size={20}
+                              />
+                            </div>
+
+                            <span
+                              className={`resource-status ${
+                                resource.status?.toLowerCase()
+                              }`}
+                            >
+                              {
+                                resource.status
+                              }
+                            </span>
+                          </div>
+
+                          <h3>
+                            {
+                              resource.name
+                            }
+                          </h3>
+
+                          <p className="resource-id">
+                            {resource.id}
+                          </p>
+
+                          <div className="resource-info">
+                            <div>
+                              <span>
+                                Type
+                              </span>
+
+                              <strong>
+                                {
+                                  resource.type
+                                }
+                              </strong>
+                            </div>
+
+                            <div>
+                              <span>
+                                Location
+                              </span>
+
+                              <strong>
+                                {
+                                  resource.location
+                                }
+                              </strong>
+                            </div>
+
+                            <div>
+                              <span>
+                                Capacity
+                              </span>
+
+                              <strong>
+                                {
+                                  resource.capacity
+                                }
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+            </section>
+          ) : (
+            /* ==================================================
+               COMMAND CENTER
+            ================================================== */
+
+            <>
+              <section className="hero-card">
+                <div className="hero-content">
+                  <div className="eyebrow">
+                    <Siren size={15} />
+                    AI EMERGENCY RESPONSE
+                  </div>
+
+                  <h1>
+                    Analyze a Campus
+                    Emergency
+                  </h1>
+
+                  <p>
+                    Describe the incident and
+                    let AegisCampus AI coordinate
+                    specialized response teams,
+                    resources and emergency
+                    actions.
+                  </p>
+                </div>
+
+                <div className="hero-symbol">
+                  <Siren size={82} />
+                </div>
+              </section>
+
+              {/* ==================================================
+                  INCIDENT INPUT
+              ================================================== */}
+
+              <section className="input-card">
+                <div className="section-heading">
+                  <div>
+                    <h2>
+                      New Emergency Incident
+                    </h2>
+
+                    <p>
+                      Provide accurate information
+                      for the AI command system.
+                    </p>
+                  </div>
+
+                  {incidentData && (
+                    <button
+                      className="secondary-button"
+                      onClick={
+                        resetIncident
+                      }
+                    >
+                      New Incident
+                    </button>
+                  )}
+                </div>
+
+                <div className="input-grid">
+                  {/* DESCRIPTION */}
+
+                  <div className="field">
+                    <label>
+                      INCIDENT DESCRIPTION
+                    </label>
+
+                    <div className="voice-input-wrapper">
+                      <textarea
+                        value={
+                          description
+                        }
+                        onChange={(event) =>
+                          setDescription(
+                            event.target
+                              .value
+                          )
+                        }
+                        placeholder="Describe the emergency or use the microphone to speak..."
+                        rows={5}
+                      />
+
+                      <button
+                        type="button"
+                        className={`voice-button ${
+                          isListening
+                            ? "listening"
+                            : ""
+                        }`}
+                        onClick={
+                          startVoiceInput
+                        }
+                        disabled={
+                          isListening
+                        }
+                        title={
+                          isListening
+                            ? "Listening..."
+                            : "Speak your emergency description"
+                        }
+                      >
+                        {isListening ? (
+                          <MicOff size={20} />
+                        ) : (
+                          <Mic size={20} />
+                        )}
+
+                        <span>
+                          {isListening
+                            ? "Listening..."
+                            : "Speak"}
+                        </span>
+                      </button>
+                    </div>
+
+                    {isListening && (
+                      <div className="voice-status">
+                        <span className="voice-dot" />
+
+                        Listening for your
+                        emergency
+                        description...
+                      </div>
+                    )}
+                  </div>
+
+                  {/* LOCATION */}
+
+                  <div className="field">
+                    <label>
+                      LOCATION
+                    </label>
+
+                    <input
+                      value={location}
+                      onChange={(event) =>
+                        setLocation(
+                          event.target
+                            .value
+                        )
+                      }
+                      placeholder="Example: Block C - 2nd Floor"
+                    />
+
+                    <div className="input-hint">
+                      <Map size={14} />
+                      Campus location
+                    </div>
+                  </div>
+
+                  {/* IMAGE */}
+
+                  <div className="field">
+                    <label>
+                      INCIDENT IMAGE /
+                      EVIDENCE
+                    </label>
+
+                    <div className="image-upload-box">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        id="incident-image"
+                        onChange={
+                          handleIncidentImage
+                        }
+                      />
+
+                      <label
+                        htmlFor="incident-image"
+                        className="image-upload-label"
+                      >
+                        📷 Choose Incident
+                        Image
+                      </label>
+
+                      {imagePreview && (
+                        <div className="incident-image-preview">
+                          <img
+                            src={
+                              imagePreview
+                            }
+                            alt="Incident evidence preview"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIncidentImage(
+                                null
+                              );
+
+                              setImagePreview(
+                                ""
+                              );
+
+                              const input =
+                                document.getElementById(
+                                  "incident-image"
+                                );
+
+                              if (input) {
+                                input.value =
+                                  "";
+                              }
+                            }}
+                          >
+                            Remove Image
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
+                {error && (
+                  <div className="error-box">
+                    <AlertTriangle size={18} />
+
+                    <span>
+                      {error}
+                    </span>
+                  </div>
+                )}
+
                 <button
-                  onClick={handleCreateIncident}
+                  className="analyze-button"
+                  onClick={
+                    analyzeEmergency
+                  }
                   disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-5 py-3.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? (
                     <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      Analyzing Incident...
+                      <span className="spinner" />
+
+                      Analyzing
+                      Emergency...
                     </>
                   ) : (
                     <>
-                      <Send className="h-4 w-4" />
-                      Analyze Incident
+                      <Siren size={20} />
+
+                      Analyze Emergency
                     </>
                   )}
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
+              </section>
 
-function StatCard({ icon: Icon, label, value, detail, status }) {
-  const styles = {
-    critical: {
-      icon: "text-red-400",
-      bg: "bg-red-400/10",
-      border: "border-red-400/10",
-    },
-    warning: {
-      icon: "text-amber-400",
-      bg: "bg-amber-400/10",
-      border: "border-amber-400/10",
-    },
-    success: {
-      icon: "text-emerald-400",
-      bg: "bg-emerald-400/10",
-      border: "border-emerald-400/10",
-    },
-    info: {
-      icon: "text-cyan-400",
-      bg: "bg-cyan-400/10",
-      border: "border-cyan-400/10",
-    },
-  };
+              {/* ==================================================
+                  CAMPUS MAP
+              ================================================== */}
 
-  const style = styles[status];
-
-  return (
-    <div
-      className={`rounded-2xl border ${style.border} bg-white/[0.025] p-4 transition hover:bg-white/[0.04] sm:p-5`}
-    >
-      <div className="flex items-start justify-between">
-        <div className={`rounded-xl p-2.5 ${style.bg}`}>
-          <Icon className={`h-4 w-4 ${style.icon}`} />
-        </div>
-
-        <ArrowUpRight className="h-3.5 w-3.5 text-slate-700" />
-      </div>
-
-      <p className="mt-4 text-[10px] uppercase tracking-wider text-slate-500">
-        {label}
-      </p>
-
-      <div className="mt-1 flex items-end gap-2">
-        <span className="text-2xl font-bold tracking-tight">{value}</span>
-
-        <span className="mb-1 text-[9px] text-slate-600">{detail}</span>
-      </div>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value }) {
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.025] p-3">
-      <p className="text-[9px] uppercase tracking-wider text-slate-600">
-        {label}
-      </p>
-
-      <p className="mt-1 truncate text-sm font-semibold text-slate-200">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Recommendation({ icon: Icon, text }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-
-      <span className="text-[10px] text-slate-400">{text}</span>
-
-      <CheckCircle2 className="ml-auto h-3 w-3 text-emerald-400" />
-    </div>
-  );
-}
-
-function AgentCard({ agent }) {
-  const Icon = agent.icon;
-  const isActive = agent.status === "Active";
-
-  return (
-    <div className="group rounded-xl border border-white/5 bg-white/[0.02] p-3 transition hover:border-cyan-400/10 hover:bg-white/[0.04]">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-400/10 bg-cyan-400/5">
-          <Icon className="h-4 w-4 text-cyan-400" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-[11px] font-semibold text-slate-200">
-              {agent.shortName}
-            </p>
-
-            <span className="flex items-center gap-1 text-[8px] uppercase tracking-wider">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isActive ? "bg-emerald-400" : "bg-amber-400"
-                }`}
+              <CampusMap
+                incidentLocation={
+                  incidentData?.incident
+                    ?.location ||
+                  incidentData?.location ||
+                  incident?.location ||
+                  location ||
+                  "Campus Monitoring"
+                }
+                deployedResources={
+                  deployedResources
+                }
               />
 
-              <span
-                className={
-                  isActive ? "text-emerald-400" : "text-amber-400"
-                }
-              >
-                {agent.status}
-              </span>
-            </span>
-          </div>
+              {/* ==================================================
+                  INCIDENT RESULTS
+              ================================================== */}
 
-          <p className="mt-1 line-clamp-1 text-[9px] text-slate-600">
-            {agent.description}
-          </p>
+              {incidentData && (
+                <>
+                  <section className="incident-banner">
+                    <div className="incident-main">
+                      <div className="incident-icon">
+                        <Flame size={28} />
+                      </div>
+
+                      <div>
+                        <div className="incident-label">
+                          INCIDENT DETECTED
+                        </div>
+
+                        <h2>
+                          {incident?.incident_type ||
+                            "Unknown Incident"}
+                        </h2>
+
+                        <p>
+                          {incident?.summary}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="critical-badge">
+                      <span className="critical-dot" />
+
+                      {incident?.severity ||
+                        "UNKNOWN"}
+                    </div>
+                  </section>
+
+                  <section className="stats-grid">
+                    <div className="stat-card">
+                      <div className="stat-icon red">
+                        <AlertTriangle
+                          size={20}
+                        />
+                      </div>
+
+                      <div>
+                        <span>
+                          SEVERITY
+                        </span>
+
+                        <strong>
+                          {incident?.severity}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="stat-card">
+                      <div className="stat-icon orange">
+                        <Users size={20} />
+                      </div>
+
+                      <div>
+                        <span>
+                          AFFECTED PEOPLE
+                        </span>
+
+                        <strong>
+                          {incident?.affected_people ??
+                            0}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="stat-card">
+                      <div className="stat-icon cyan">
+                        <Map size={20} />
+                      </div>
+
+                      <div>
+                        <span>
+                          LOCATION
+                        </span>
+
+                        <strong>
+                          {incident?.location}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="stat-card">
+                      <div className="stat-icon green">
+                        <CheckCircle2
+                          size={20}
+                        />
+                      </div>
+
+                      <div>
+                        <span>
+                          AI CONFIDENCE
+                        </span>
+
+                        <strong>
+                          {incident?.confidence}%
+                        </strong>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* ==================================================
+                      MULTI AGENT RESPONSE
+                  ================================================== */}
+
+                  <section className="panel">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>
+                          Multi-Agent Response
+                        </h2>
+
+                        <p>
+                          Specialized AI agents
+                          activated for this
+                          incident.
+                        </p>
+                      </div>
+
+                      <div className="agent-count">
+                        {
+                          Object.keys(
+                            agentResponses
+                          ).length
+                        }{" "}
+                        / 5 ACTIVE
+                      </div>
+                    </div>
+
+                    <div className="agent-grid">
+                      {[
+                        "security",
+                        "medical",
+                        "facilities",
+                        "transport",
+                        "communication",
+                      ].map(
+                        (agentName) => {
+                          const Icon =
+                            agentIcons[
+                              agentName
+                            ];
+
+                          const agent =
+                            agentResponses[
+                              agentName
+                            ];
+
+                          return (
+                            <div
+                              className={`agent-card ${
+                                agent
+                                  ? "agent-active"
+                                  : "agent-error"
+                              }`}
+                              key={
+                                agentName
+                              }
+                            >
+                              <div className="agent-top">
+                                <div className="agent-icon">
+                                  <Icon
+                                    size={20}
+                                  />
+                                </div>
+
+                                <span className="agent-status">
+                                  {agent
+                                    ? "COMPLETED"
+                                    : "ERROR"}
+                                </span>
+                              </div>
+
+                              <h3>
+                                {agentName
+                                  .charAt(
+                                    0
+                                  )
+                                  .toUpperCase() +
+                                  agentName.slice(
+                                    1
+                                  )}
+                              </h3>
+
+                              <p>
+                                {agent
+                                  ? `${
+                                      agent
+                                        .selected_resources
+                                        ?.length ||
+                                      0
+                                    } resources selected`
+                                  : "Agent unavailable"}
+                              </p>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ==================================================
+                      RESOURCES + APPROVAL
+                  ================================================== */}
+
+                  <section className="two-column">
+                    <div className="panel">
+                      <div className="panel-heading">
+                        <div>
+                          <h2>
+                            Selected Resources
+                          </h2>
+
+                          <p>
+                            Resources recommended
+                            by the AI agents.
+                          </p>
+                        </div>
+
+                        <div className="resource-total">
+                          {response
+                            ?.selected_resources
+                            ?.length || 0}
+                        </div>
+                      </div>
+
+                      <div className="resource-list">
+                        {(
+                          response?.selected_resources ||
+                          []
+                        ).map(
+                          (resourceId) => {
+                            const isDeployed =
+                              deployedResources.includes(
+                                resourceId
+                              );
+
+                            return (
+                              <div
+                                className="resource-row"
+                                key={
+                                  resourceId
+                                }
+                              >
+                                <div className="resource-symbol">
+                                  <CheckCircle2
+                                    size={17}
+                                  />
+                                </div>
+
+                                <span>
+                                  {
+                                    resourceId
+                                  }
+                                </span>
+
+                                <span
+                                  className={
+                                    isDeployed
+                                      ? "available deployed"
+                                      : "available"
+                                  }
+                                >
+                                  {isDeployed
+                                    ? "DEPLOYED"
+                                    : "AVAILABLE"}
+                                </span>
+                              </div>
+                            );
+                          }
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      className={`approval-panel ${
+                        isApproved
+                          ? "approval-approved"
+                          : isRejected
+                          ? "approval-rejected"
+                          : ""
+                      }`}
+                    >
+                      <div className="approval-icon">
+                        {isApproved ? (
+                          <CheckCircle2
+                            size={25}
+                          />
+                        ) : isRejected ? (
+                          <XCircle
+                            size={25}
+                          />
+                        ) : (
+                          <Shield
+                            size={25}
+                          />
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="approval-label">
+                          HUMAN APPROVAL
+                        </div>
+
+                        <h2>
+                          {approvalStatus}
+                        </h2>
+
+                        <p>
+                          {isApproved
+                            ? `Approved by ${
+                                currentApproval?.approved_by ||
+                                "Campus Emergency Commander"
+                              }. Emergency response actions are authorized.`
+                            : isRejected
+                            ? `Rejected by ${
+                                currentApproval?.rejected_by ||
+                                "Campus Emergency Commander"
+                              }.`
+                            : "High-impact emergency actions require authorization from an emergency commander."}
+                        </p>
+                      </div>
+
+                      {isAdmin &&
+                        isPending && (
+                          <>
+                            <button
+                              className="approve-button"
+                              onClick={
+                                approveResponse
+                              }
+                              disabled={
+                                approvalLoading
+                              }
+                            >
+                              {approvalLoading ? (
+                                <>
+                                  <span className="spinner" />
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2
+                                    size={17}
+                                  />
+                                  Approve
+                                  Response
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              className="reject-button"
+                              onClick={() =>
+                                setShowRejectBox(
+                                  (previous) =>
+                                    !previous
+                                )
+                              }
+                              disabled={
+                                approvalLoading
+                              }
+                            >
+                              <XCircle
+                                size={17}
+                              />
+
+                              Reject
+                              Response
+                            </button>
+
+                            {showRejectBox && (
+                              <div className="reject-box">
+                                <label>
+                                  REJECTION
+                                  REASON
+                                </label>
+
+                                <textarea
+                                  value={
+                                    rejectionReason
+                                  }
+                                  onChange={(
+                                    event
+                                  ) =>
+                                    setRejectionReason(
+                                      event
+                                        .target
+                                        .value
+                                    )
+                                  }
+                                  placeholder="Explain why this response plan should be rejected..."
+                                  rows={3}
+                                />
+
+                                <button
+                                  className="confirm-reject-button"
+                                  onClick={
+                                    rejectResponse
+                                  }
+                                  disabled={
+                                    approvalLoading
+                                  }
+                                >
+                                  Confirm
+                                  Rejection
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                      {isApproved && (
+                        <div className="approval-success">
+                          <CheckCircle2
+                            size={16}
+                          />
+
+                          RESPONSE
+                          AUTHORIZED
+                        </div>
+                      )}
+
+                      {isRejected && (
+                        <div className="approval-failure">
+                          <XCircle
+                            size={16}
+                          />
+
+                          RESPONSE
+                          REJECTED
+                        </div>
+                      )}
+
+                      {approvalError && (
+                        <div className="approval-error">
+                          <AlertTriangle
+                            size={15}
+                          />
+
+                          {approvalError}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ==================================================
+                      COMMUNICATION ALERT
+                  ================================================== */}
+
+                  {agentResponses
+                    .communication
+                    ?.alert_required && (
+                    <section className="alert-panel">
+                      <div className="alert-header">
+                        <div className="alert-icon">
+                          <Bell size={21} />
+                        </div>
+
+                        <div>
+                          <span>
+                            EMERGENCY ALERT
+                          </span>
+
+                          <h2>
+                            Communication Agent
+                            Recommendation
+                          </h2>
+                        </div>
+                      </div>
+
+                      <div className="alert-message">
+                        {
+                          agentResponses
+                            .communication
+                            .alert_message
+                        }
+                      </div>
+
+                      <div className="alert-audience">
+                        {(
+                          agentResponses
+                            .communication
+                            .audience || []
+                        ).map(
+                          (aud) => (
+                            <span
+                              key={aud}
+                            >
+                              {aud}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ==================================================
+                      RECOMMENDED ACTIONS
+                  ================================================== */}
+
+                  <section className="panel">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>
+                          Recommended Actions
+                        </h2>
+
+                        <p>
+                          Combined recommendations
+                          from all active agents.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="actions-grid">
+                      {(
+                        response?.recommended_actions ||
+                        []
+                      ).map(
+                        (
+                          action,
+                          index
+                        ) => (
+                          <div
+                            className="action-row"
+                            key={`${action}-${index}`}
+                          >
+                            <span className="action-number">
+                              {String(
+                                index + 1
+                              ).padStart(
+                                2,
+                                "0"
+                              )}
+                            </span>
+
+                            <span>
+                              {action}
+                            </span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ==================================================
+                      INCIDENT AUDIT
+                  ================================================== */}
+
+                  <section className="panel">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>
+                          Audit Trail
+                        </h2>
+
+                        <p>
+                          Recorded emergency
+                          workflow events.
+                        </p>
+                      </div>
+
+                      <ClipboardList
+                        size={21}
+                      />
+                    </div>
+
+                    <div className="audit-list">
+                      {(
+                        incidentData.audit_events ||
+                        []
+                      ).map(
+                        (event) => (
+                          <div
+                            className="audit-row"
+                            key={
+                              event.event_id
+                            }
+                          >
+                            <div className="audit-dot" />
+
+                            <div className="audit-content">
+                              <strong>
+                                {
+                                  event.event_type
+                                }
+                              </strong>
+
+                              <p>
+                                {
+                                  event.message
+                                }
+                              </p>
+                            </div>
+
+                            <span className="audit-actor">
+                              {
+                                event.actor
+                              }
+                            </span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {/* ==================================================
+                  EMPTY COMMAND CENTER
+              ================================================== */}
+
+              {!incidentData && (
+                <section className="empty-state">
+                  <div className="empty-icon">
+                    <Radio size={30} />
+                  </div>
+
+                  <h2>
+                    Command Center Ready
+                  </h2>
+
+                  <p>
+                    Submit an emergency incident
+                    above to activate the
+                    AegisCampus multi-agent
+                    response system.
+                  </p>
+
+                  <div className="empty-agents">
+                    <span>
+                      Security
+                    </span>
+
+                    <span>
+                      Medical
+                    </span>
+
+                    <span>
+                      Facilities
+                    </span>
+
+                    <span>
+                      Transport
+                    </span>
+
+                    <span>
+                      Communication
+                    </span>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ResourceCard({ resource }) {
-  const Icon = resource.icon;
-
-  const percentage = Math.round(
-    (resource.available / resource.total) * 100
-  );
-
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-400/5">
-          <Icon className="h-4 w-4 text-cyan-400" />
-        </div>
-
-        <span className="text-[9px] text-slate-600">
-          {resource.type}
-        </span>
-      </div>
-
-      <p className="mt-3 text-[11px] font-medium text-slate-300">
-        {resource.name}
-      </p>
-
-      <div className="mt-2 flex items-end justify-between">
-        <p className="text-lg font-bold">
-          {resource.available}
-          <span className="text-xs font-normal text-slate-600">
-            /{resource.total}
-          </span>
-        </p>
-
-        <span className="text-[9px] text-emerald-400">
-          {percentage}% ready
-        </span>
-      </div>
-
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className="h-full rounded-full bg-cyan-400 transition-all"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function MapBuilding({ className, label, danger = false }) {
-  return (
-    <div className={`absolute ${className}`}>
-      <div
-        className={`flex h-20 w-28 items-center justify-center rounded-xl border ${
-          danger
-            ? "border-red-400/30 bg-red-400/10"
-            : "border-slate-600/50 bg-slate-800/70"
-        }`}
-      >
-        <div className="text-center">
-          <Building2
-            className={`mx-auto h-5 w-5 ${
-              danger ? "text-red-400" : "text-slate-500"
-            }`}
-          />
-
-          <p className="mt-1 text-[9px] font-medium text-slate-400">
-            {label}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MapMarker({ className, type, label }) {
-  const colors = {
-    danger: "bg-red-500 border-red-300/40 shadow-red-500/30",
-    medical:
-      "bg-emerald-500 border-emerald-300/40 shadow-emerald-500/30",
-    security: "bg-blue-500 border-blue-300/40 shadow-blue-500/30",
-    vehicle:
-      "bg-amber-500 border-amber-300/40 shadow-amber-500/30",
-  };
-
-  return (
-    <div className={`absolute ${className}`}>
-      <div
-        className={`relative flex h-8 w-8 items-center justify-center rounded-full border shadow-lg ${colors[type]}`}
-      >
-        <span className="h-2.5 w-2.5 rounded-full bg-white" />
-
-        <span className="absolute inset-[-5px] animate-ping rounded-full border border-white/10" />
-      </div>
-
-      <div className="absolute left-1/2 top-9 -translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-slate-950/90 px-2 py-1 text-[8px] text-slate-300 backdrop-blur">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function Legend({ color, label }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className={`h-2 w-2 rounded-full ${color}`} />
-
-      <span className="text-[8px] text-slate-500">
-        {label}
-      </span>
+      </main>
     </div>
   );
 }

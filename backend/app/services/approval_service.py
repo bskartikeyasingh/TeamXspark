@@ -1,18 +1,17 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.app.database.mongodb import approvals_collection
+
 
 # ============================================================
 # AegisCampus AI
 # Human Approval Service
+# MongoDB Persistent Version
 # ============================================================
 
 
 class ApprovalService:
-
-    def __init__(self):
-
-        self.approvals: list[dict[str, Any]] = []
 
     # ========================================================
     # CREATE APPROVAL REQUEST
@@ -25,9 +24,10 @@ class ApprovalService:
         requested_by: str = "AI Orchestrator",
     ) -> dict[str, Any]:
 
-        approval_id = (
-            f"APR-{len(self.approvals) + 1:04d}"
-        )
+        # Generate next approval ID from MongoDB
+        count = approvals_collection.count_documents({})
+
+        approval_id = f"APR-{count + 1:04d}"
 
         approval_request = {
 
@@ -77,8 +77,9 @@ class ApprovalService:
             ),
         }
 
-        self.approvals.append(
-            approval_request
+        # Save permanently to MongoDB
+        approvals_collection.insert_one(
+            approval_request.copy()
         )
 
         return approval_request
@@ -103,19 +104,30 @@ class ApprovalService:
                 "Only pending approval requests can be approved."
             )
 
-        approval["status"] = "APPROVED"
-
-        approval["approved_by"] = (
-            approved_by
-        )
-
-        approval["approved_at"] = (
+        approved_at = (
             datetime.now(
                 timezone.utc
             ).isoformat()
         )
 
-        return approval
+        approvals_collection.update_one(
+
+            {
+                "approval_id": approval_id
+            },
+
+            {
+                "$set": {
+                    "status": "APPROVED",
+                    "approved_by": approved_by,
+                    "approved_at": approved_at,
+                }
+            },
+        )
+
+        return self._find_approval(
+            approval_id
+        )
 
     # ========================================================
     # REJECT RESPONSE
@@ -138,23 +150,31 @@ class ApprovalService:
                 "Only pending approval requests can be rejected."
             )
 
-        approval["status"] = "REJECTED"
-
-        approval["approved_by"] = (
-            rejected_by
-        )
-
-        approval["approved_at"] = (
+        rejected_at = (
             datetime.now(
                 timezone.utc
             ).isoformat()
         )
 
-        approval["rejection_reason"] = (
-            reason
+        approvals_collection.update_one(
+
+            {
+                "approval_id": approval_id
+            },
+
+            {
+                "$set": {
+                    "status": "REJECTED",
+                    "approved_by": rejected_by,
+                    "approved_at": rejected_at,
+                    "rejection_reason": reason,
+                }
+            },
         )
 
-        return approval
+        return self._find_approval(
+            approval_id
+        )
 
     # ========================================================
     # GET APPROVAL
@@ -177,7 +197,16 @@ class ApprovalService:
         self,
     ) -> list[dict[str, Any]]:
 
-        return self.approvals.copy()
+        approvals = list(
+            approvals_collection.find(
+                {},
+                {
+                    "_id": 0
+                },
+            )
+        )
+
+        return approvals
 
     # ========================================================
     # PENDING APPROVALS
@@ -187,11 +216,18 @@ class ApprovalService:
         self,
     ) -> list[dict[str, Any]]:
 
-        return [
-            approval
-            for approval in self.approvals
-            if approval["status"] == "PENDING"
-        ]
+        approvals = list(
+            approvals_collection.find(
+                {
+                    "status": "PENDING"
+                },
+                {
+                    "_id": 0
+                },
+            )
+        )
+
+        return approvals
 
     # ========================================================
     # INTERNAL FIND METHOD
@@ -202,15 +238,24 @@ class ApprovalService:
         approval_id: str,
     ) -> dict[str, Any]:
 
-        for approval in self.approvals:
+        approval = approvals_collection.find_one(
 
-            if approval["approval_id"] == approval_id:
+            {
+                "approval_id": approval_id
+            },
 
-                return approval
-
-        raise ValueError(
-            f"Approval request {approval_id} not found."
+            {
+                "_id": 0
+            },
         )
+
+        if approval is None:
+
+            raise ValueError(
+                f"Approval request {approval_id} not found."
+            )
+
+        return approval
 
 
 # ============================================================
