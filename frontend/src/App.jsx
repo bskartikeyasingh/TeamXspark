@@ -65,16 +65,17 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 const QUICK_LOCATIONS = [
-  "N Block",
-  "A Block",
-  "Library",
-  "H Block",
-  "U Block",
-  "Pharmacy Block",
-  "Main Gate",
-  "Playground",
-  "Convocation Hall",
+  { name: "N Block", code: "N", icon: "🔬", desc: "Science & Tech" },
+  { name: "A Block", code: "A", icon: "🏛️", desc: "Academic Complex" },
+  { name: "Library", code: "L", icon: "📚", desc: "NTR Central Library" },
+  { name: "H Block", code: "H", icon: "🏫", desc: "Humanities & Sciences" },
+  { name: "U Block", code: "U", icon: "🏢", desc: "Admin Complex" },
+  { name: "Pharmacy Block", code: "P", icon: "💊", desc: "Pharmacy College" },
+  { name: "Main Gate", code: "M", icon: "🚪", desc: "Primary Campus Exit" },
+  { name: "Playground", code: "PG", icon: "🌲", desc: "Safe Zone Alpha" },
+  { name: "Convocation Hall", code: "CH", icon: "🏛️", desc: "Safe Shelter" },
 ];
+
 
 const STUDENT_AI_PROMPTS = [
   "Where should I evacuate from N Block?",
@@ -1378,33 +1379,44 @@ export default function App({ user, onLogout }) {
                       {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
 
                       <div className="form-field">
-                        <label>INCIDENT LOCATION *</label>
+                        <label className="field-title">INCIDENT LOCATION *</label>
                         <input
                           type="text"
-                          placeholder="e.g. N Block, Library, Pharmacy Block..."
+                          placeholder="Type or select location below (e.g. N Block, Library, Pharmacy Block...)"
                           value={location}
                           onChange={(e) => setLocation(e.target.value)}
                           required
+                          className="ops-input"
                         />
 
-                        <div className="quick-chip-selector">
-                          <span className="selector-title">QUICK SELECT:</span>
-                          {QUICK_LOCATIONS.map((loc) => (
-                            <button
-                              key={loc}
-                              type="button"
-                              className={`location-btn-chip ${location === loc ? "active" : ""}`}
-                              onClick={() => setLocation(loc)}
-                            >
-                              {loc}
-                            </button>
-                          ))}
+                        <div className="quick-select-header">
+                          <span className="selector-title">QUICK SELECT CAMPUS ZONE:</span>
+                        </div>
+                        <div className="location-grid-selector">
+                          {QUICK_LOCATIONS.map((loc) => {
+                            const isSelected = location.toLowerCase().trim() === loc.name.toLowerCase().trim();
+                            return (
+                              <button
+                                key={loc.name}
+                                type="button"
+                                className={`location-card-chip ${isSelected ? "selected" : ""}`}
+                                onClick={() => setLocation(loc.name)}
+                              >
+                                <span className="loc-card-icon">{loc.icon}</span>
+                                <div className="loc-card-meta">
+                                  <strong>{loc.name}</strong>
+                                  <small>{loc.desc}</small>
+                                </div>
+                                {isSelected && <span className="loc-check-dot">✓</span>}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
 
                       <div className="form-field">
                         <div className="field-label-split">
-                          <label>EMERGENCY DESCRIPTION *</label>
+                          <label className="field-title">EMERGENCY DESCRIPTION *</label>
                           <button
                             type="button"
                             className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
@@ -1415,28 +1427,46 @@ export default function App({ user, onLogout }) {
                           </button>
                         </div>
 
-                        <textarea
-                          rows={3}
-                          placeholder="Describe what is occurring (e.g. Fire in lab, injured student, electrical spark...)"
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          required
-                        />
+                        <div className="textarea-wrapper">
+                          <textarea
+                            rows={3}
+                            maxLength={500}
+                            placeholder="Describe what is occurring (e.g. Fire in lab, injured student, electrical spark...)"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            required
+                            className="ops-textarea"
+                          />
+                          <div className="textarea-footer">
+                            <span className="char-count-badge">{description.length} / 500 characters</span>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="form-field">
-                        <label>ATTACH PHOTOGRAPH (EVIDENCE)</label>
+                        <label className="field-title">ATTACH PHOTOGRAPH (EVIDENCE)</label>
                         {imagePreview ? (
                           <div className="evidence-staged-box">
-                            <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                            <div className="evidence-preview-inner">
+                              <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                              <div className="staged-meta">
+                                <span className="staged-name">Photo Evidence Staged</span>
+                                <span className="staged-sub">Ready to submit with emergency dispatch</span>
+                              </div>
+                            </div>
                             <button type="button" className="btn-remove-evidence" onClick={removeImage}>
-                              <X size={12} /> Remove
+                              <X size={13} /> Remove
                             </button>
                           </div>
                         ) : (
                           <label htmlFor="incident-image-input" className="evidence-drop-trigger">
-                            <ImageIcon size={15} />
-                            <span>Attach Photo Evidence (PNG/JPG Max 5MB)</span>
+                            <div className="drop-icon-circle">
+                              <ImageIcon size={18} />
+                            </div>
+                            <div className="drop-text-block">
+                              <strong>Upload Incident Photograph</strong>
+                              <span>Click to browse or drop photo evidence (PNG/JPG Max 5MB)</span>
+                            </div>
                           </label>
                         )}
                         <input
@@ -1453,7 +1483,7 @@ export default function App({ user, onLogout }) {
                         className="btn-transmit-emergency"
                         disabled={reportLoading}
                       >
-                        {reportLoading ? "TRANSMITTING REPORT..." : "TRANSMIT EMERGENCY REPORT →"}
+                        {reportLoading ? "TRANSMITTING TO COMMAND CENTER..." : "TRANSMIT EMERGENCY REPORT →"}
                       </button>
                     </form>
                   </div>
@@ -1467,12 +1497,15 @@ export default function App({ user, onLogout }) {
                           <Bot size={16} className="text-cyan" />
                           <h3>ASK AEGIS AI</h3>
                         </div>
-                        <span className="panel-status-sub">24/7 SAFETY ASSISTANT</span>
+                        <div className="ai-status-pill">
+                          <span className="ai-pulse-dot" />
+                          <span>AI Online • Ready to Assist</span>
+                        </div>
                       </div>
 
                       <div className="ask-ai-body">
                         <p className="ai-intro-text">
-                          Instant emergency guidance, nearest evacuation points, and campus medical protocols.
+                          Instant emergency guidance, nearest evacuation points, and campus safety protocols.
                         </p>
 
                         <div className="ai-quick-chips">
@@ -1486,8 +1519,11 @@ export default function App({ user, onLogout }) {
                                 handleSendAiPrompt(prompt);
                               }}
                             >
-                              <Sparkles size={11} className="text-cyan" />
-                              <span>{prompt}</span>
+                              <div className="prompt-chip-icon">
+                                <Sparkles size={12} className="text-cyan" />
+                              </div>
+                              <span className="prompt-text">{prompt}</span>
+                              <ArrowRight size={12} className="prompt-arrow" />
                             </button>
                           ))}
                         </div>
@@ -1497,9 +1533,9 @@ export default function App({ user, onLogout }) {
                           className="btn-open-ai-chat"
                           onClick={() => setActiveTab("ai-assistant")}
                         >
-                          <MessageSquare size={13} />
+                          <MessageSquare size={14} />
                           <span>Open Live Safety Assistant</span>
-                          <ArrowRight size={13} />
+                          <ArrowRight size={14} />
                         </button>
                       </div>
                     </div>
@@ -1515,7 +1551,13 @@ export default function App({ user, onLogout }) {
 
                       <div className="recent-list-body">
                         {incidents.length === 0 ? (
-                          <div className="empty-sub-note">No submitted incidents. Campus is secure.</div>
+                          <div className="empty-state-container">
+                            <div className="empty-icon-box">
+                              <ShieldCheck size={28} className="text-green" />
+                            </div>
+                            <strong>No active incident records</strong>
+                            <p>All campus sectors are operating normally under 24/7 Aegis monitoring.</p>
+                          </div>
                         ) : (
                           incidents.slice(0, 3).map((inc) => (
                             <div
@@ -1538,6 +1580,7 @@ export default function App({ user, onLogout }) {
                   </div>
                 </div>
               </div>
+
             )}
 
             {/* ======================================================
@@ -1559,33 +1602,44 @@ export default function App({ user, onLogout }) {
                     {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
 
                     <div className="form-field">
-                      <label>CAMPUS LOCATION *</label>
+                      <label className="field-title">CAMPUS LOCATION *</label>
                       <input
                         type="text"
-                        placeholder="e.g. N Block, Pharmacy Block, Library..."
+                        placeholder="Type or select location below (e.g. N Block, Pharmacy Block, Library...)"
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
                         required
+                        className="ops-input"
                       />
 
-                      <div className="quick-chip-selector">
-                        <span className="selector-title">QUICK SELECT:</span>
-                        {QUICK_LOCATIONS.map((loc) => (
-                          <button
-                            key={loc}
-                            type="button"
-                            className={`location-btn-chip ${location === loc ? "active" : ""}`}
-                            onClick={() => setLocation(loc)}
-                          >
-                            {loc}
-                          </button>
-                        ))}
+                      <div className="quick-select-header">
+                        <span className="selector-title">QUICK SELECT CAMPUS ZONE:</span>
+                      </div>
+                      <div className="location-grid-selector">
+                        {QUICK_LOCATIONS.map((loc) => {
+                          const isSelected = location.toLowerCase().trim() === loc.name.toLowerCase().trim();
+                          return (
+                            <button
+                              key={loc.name}
+                              type="button"
+                              className={`location-card-chip ${isSelected ? "selected" : ""}`}
+                              onClick={() => setLocation(loc.name)}
+                            >
+                              <span className="loc-card-icon">{loc.icon}</span>
+                              <div className="loc-card-meta">
+                                <strong>{loc.name}</strong>
+                                <small>{loc.desc}</small>
+                              </div>
+                              {isSelected && <span className="loc-check-dot">✓</span>}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
                     <div className="form-field">
                       <div className="field-label-split">
-                        <label>INCIDENT DESCRIPTION *</label>
+                        <label className="field-title">INCIDENT DESCRIPTION *</label>
                         <button
                           type="button"
                           className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
@@ -1596,28 +1650,46 @@ export default function App({ user, onLogout }) {
                         </button>
                       </div>
 
-                      <textarea
-                        rows={4}
-                        placeholder="Provide exact details: nature of emergency, casualties, floor, room number..."
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        required
-                      />
+                      <div className="textarea-wrapper">
+                        <textarea
+                          rows={4}
+                          maxLength={500}
+                          placeholder="Provide exact details: nature of emergency, casualties, floor, room number..."
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          required
+                          className="ops-textarea"
+                        />
+                        <div className="textarea-footer">
+                          <span className="char-count-badge">{description.length} / 500 characters</span>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="form-field">
-                      <label>PHOTOGRAPHIC EVIDENCE</label>
+                      <label className="field-title">PHOTOGRAPHIC EVIDENCE</label>
                       {imagePreview ? (
                         <div className="evidence-staged-box">
-                          <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                          <div className="evidence-preview-inner">
+                            <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                            <div className="staged-meta">
+                              <span className="staged-name">Photo Evidence Staged</span>
+                              <span className="staged-sub">Ready to submit with emergency report</span>
+                            </div>
+                          </div>
                           <button type="button" className="btn-remove-evidence" onClick={removeImage}>
-                            <X size={12} /> Remove Evidence
+                            <X size={13} /> Remove Evidence
                           </button>
                         </div>
                       ) : (
                         <label htmlFor="incident-image-input-tab" className="evidence-drop-trigger">
-                          <ImageIcon size={18} />
-                          <span>Attach Incident Photograph (PNG/JPG Max 5MB)</span>
+                          <div className="drop-icon-circle">
+                            <ImageIcon size={18} />
+                          </div>
+                          <div className="drop-text-block">
+                            <strong>Attach Incident Photograph</strong>
+                            <span>Click to browse or drop photo evidence (PNG/JPG Max 5MB)</span>
+                          </div>
                         </label>
                       )}
                       <input
