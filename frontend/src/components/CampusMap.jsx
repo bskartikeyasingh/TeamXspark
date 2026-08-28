@@ -56,25 +56,25 @@ const RESOURCE_CLASSES = {
   Communication: "communication",
 };
 
-// CAMPUS BUILDINGS (SUBTLE MAP LABELS)
+// CAMPUS BUILDINGS (EXACT CALIBRATION ON VIGNAN SATELLITE MAP)
 const CAMPUS_BUILDINGS = [
-  { name: "A Block", x: 12.5, y: 44.5, type: "Academic Complex A", defaultSafe: "Playground" },
-  { name: "Main Gate", x: 12.5, y: 33.5, type: "Primary Campus Exit Gate", defaultSafe: "Convocation Hall" },
-  { name: "Library", x: 23.5, y: 36.0, type: "NTR Central Library", defaultSafe: "Convocation Hall" },
-  { name: "H Block", x: 24.8, y: 54.5, type: "Humanities & Sciences H", defaultSafe: "Playground" },
-  { name: "N Block", x: 49.2, y: 51.0, type: "Science & Technology N", defaultSafe: "Convocation Hall" },
-  { name: "U Block", x: 55.4, y: 42.0, type: "Administrative Complex U", defaultSafe: "Convocation Hall" },
-  { name: "Pharmacy Block", x: 46.2, y: 87.0, type: "Pharmacy College / Labs", defaultSafe: "Playground" },
+  { name: "A Block", x: 12.5, y: 44.4, type: "Academic Complex A", defaultSafe: "Playground" },
+  { name: "Main Gate", x: 12.1, y: 33.0, type: "Primary Campus Exit Gate (M)", defaultSafe: "Convocation Hall" },
+  { name: "Library", x: 23.5, y: 36.0, type: "NTR Central Library (L)", defaultSafe: "Convocation Hall" },
+  { name: "H Block", x: 24.8, y: 54.5, type: "Humanities & Sciences Block (H)", defaultSafe: "Playground" },
+  { name: "N Block", x: 49.2, y: 51.0, type: "Science & Technology Block (N)", defaultSafe: "Convocation Hall" },
+  { name: "U Block", x: 55.5, y: 42.1, type: "Administrative Complex (U)", defaultSafe: "Convocation Hall" },
+  { name: "Pharmacy Block", x: 46.2, y: 87.0, type: "Pharmacy College / Labs (P)", defaultSafe: "Playground" },
 ];
 
 // CONFIGURED SAFE ASSEMBLY ZONES
 const SAFE_ZONES = [
   {
     name: "Convocation Hall",
-    x: 63.5,
-    y: 36.5,
+    x: 84.0,
+    y: 50.5,
     label: "SAFE SHELTER",
-    description: "Indoor Assembly Auditorium & Emergency Command Shelter",
+    description: "Indoor Assembly Auditorium & Emergency Command Center",
   },
   {
     name: "Playground",
@@ -101,7 +101,7 @@ function normalizeLocation(rawLocation) {
   if (val.includes("pharmacy") || val.includes("pharm") || val === "p") return "Pharmacy Block";
   if (val.includes("main gate") || val.includes("gate") || val.includes("entrance") || val === "m") return "Main Gate";
   if (val.includes("playground") || val.includes("ground") || val.includes("sports")) return "Playground";
-  if (val.includes("convocation") || val.includes("auditorium") || val.includes("hall")) return "Convocation Hall";
+  if (val.includes("convocation") || val.includes("auditorium") || val.includes("hall") || val.includes("lara")) return "Convocation Hall";
 
   return "N Block";
 }
@@ -126,7 +126,7 @@ function calculateDynamicEvacuation(incidentLoc, incidentType = "General") {
   if (normLoc === "Convocation Hall") {
     return {
       destination: "Convocation Hall (Safe Shelter)",
-      path: [{ x: 63.5, y: 36.5 }, { x: 63.5, y: 36.5 }],
+      path: [{ x: 84.0, y: 50.5 }, { x: 84.0, y: 50.5 }],
       instructions: [
         "You are located at designated Safe Shelter (Convocation Hall).",
         "Remain inside the assembly area.",
@@ -144,13 +144,14 @@ function calculateDynamicEvacuation(incidentLoc, incidentType = "General") {
     chosenDestination = "Convocation Hall (Safe Shelter)";
     path = [
       { x: 49.2, y: 51.0 }, // N Block exit
-      { x: 55.4, y: 42.0 }, // U Block corridor
-      { x: 63.5, y: 36.5 }, // Convocation Hall
+      { x: 55.5, y: 42.1 }, // U Block corridor
+      { x: 70.0, y: 46.0 }, // East Campus Pathway
+      { x: 84.0, y: 50.5 }, // Convocation Hall / Lara Area
     ];
   } else if (normLoc === "A Block") {
     chosenDestination = "Playground (Safe Zone Alpha)";
     path = [
-      { x: 12.5, y: 44.5 }, // A Block
+      { x: 12.5, y: 44.4 }, // A Block
       { x: 24.8, y: 54.5 }, // H Block East Pathway
       { x: 42.0, y: 56.0 }, // Central Avenue
       { x: 64.0, y: 53.0 }, // Playground
@@ -158,10 +159,10 @@ function calculateDynamicEvacuation(incidentLoc, incidentType = "General") {
   } else if (normLoc === "Library") {
     chosenDestination = "Convocation Hall (Safe Shelter)";
     path = [
-      { x: 23.5, y: 36.0 }, // Library
+      { x: 23.5, y: 36.0 }, // Library (L)
       { x: 38.0, y: 42.0 }, // North Corridor
-      { x: 55.4, y: 42.0 }, // U Block
-      { x: 63.5, y: 36.5 }, // Convocation Hall
+      { x: 55.5, y: 42.1 }, // U Block
+      { x: 84.0, y: 50.5 }, // Convocation Hall
     ];
   } else if (normLoc === "H Block") {
     chosenDestination = "Playground (Safe Zone Alpha)";
@@ -173,29 +174,30 @@ function calculateDynamicEvacuation(incidentLoc, incidentType = "General") {
   } else if (normLoc === "U Block") {
     chosenDestination = "Convocation Hall (Safe Shelter)";
     path = [
-      { x: 55.4, y: 42.0 }, // U Block
-      { x: 63.5, y: 36.5 }, // Convocation Hall
+      { x: 55.5, y: 42.1 }, // U Block
+      { x: 70.0, y: 46.0 }, // East Campus Pathway
+      { x: 84.0, y: 50.5 }, // Convocation Hall
     ];
   } else if (normLoc === "Pharmacy Block") {
     chosenDestination = "Playground (Safe Zone Alpha)";
     path = [
-      { x: 46.2, y: 87.0 }, // Pharmacy Block
+      { x: 46.2, y: 87.0 }, // Pharmacy Block (P)
       { x: 56.0, y: 72.0 }, // East Road
       { x: 64.0, y: 53.0 }, // Playground
     ];
   } else if (normLoc === "Main Gate") {
     chosenDestination = "Convocation Hall (Safe Shelter)";
     path = [
-      { x: 12.5, y: 33.5 }, // Main Gate
-      { x: 23.5, y: 36.0 }, // Library
-      { x: 55.4, y: 42.0 }, // U Block
-      { x: 63.5, y: 36.5 }, // Convocation Hall
+      { x: 12.1, y: 33.0 }, // Main Gate (M)
+      { x: 23.5, y: 36.0 }, // Library (L)
+      { x: 55.5, y: 42.1 }, // U Block
+      { x: 84.0, y: 50.5 }, // Convocation Hall
     ];
   } else {
     chosenDestination = "Playground (Safe Zone Alpha)";
     path = [
-      { x: 40.0, y: 50.0 },
-      { x: 55.0, y: 52.0 },
+      { x: 49.2, y: 51.0 },
+      { x: 55.5, y: 42.1 },
       { x: 64.0, y: 53.0 },
     ];
   }
