@@ -258,8 +258,10 @@ export default function App({ user, onLogout }) {
 
       // Auto set active incident if any
       const activeOne = incList.find((i) => i.status === "ACTIVE" || i.status === "PENDING");
-      if (activeOne && !activeIncidentData) {
+      if (activeOne) {
         setActiveIncidentData({ incident: activeOne, incident_id: activeOne.incident_id });
+      } else {
+        setActiveIncidentData(null);
       }
     } catch (err) {
       console.error("Failed to load incidents:", err);
@@ -591,7 +593,8 @@ export default function App({ user, onLogout }) {
             notes: "Incident resolved safely.",
           });
           if (res.data.success) {
-            showToast(`Incident ${incidentId} marked as RESOLVED.`, "success");
+            showToast(`Incident ${incidentId} marked as RESOLVED. Campus sectors returned to normal.`, "success");
+            setActiveIncidentData(null);
             loadIncidents();
             loadResources();
             loadResourceSummary();
@@ -780,9 +783,21 @@ export default function App({ user, onLogout }) {
     return resources.filter((r) => r.type === resourceFilter || r.status === resourceFilter);
   }, [resources, resourceFilter]);
 
-  // Derived current active incident
-  const activeIncident = activeIncidentData?.incident || (incidents.find((i) => i.status === "ACTIVE") || (incidents.length > 0 ? incidents[0] : null));
-  const hasActiveEmergency = Boolean(activeIncident && (activeIncident.status === "ACTIVE" || activeIncident.status === "PENDING"));
+  // Derived current active incident (strictly active or pending, never resolved)
+  const activeIncident = useMemo(() => {
+    if (
+      activeIncidentData?.incident &&
+      (activeIncidentData.incident.status === "ACTIVE" || activeIncidentData.incident.status === "PENDING")
+    ) {
+      return activeIncidentData.incident;
+    }
+    return incidents.find((i) => i.status === "ACTIVE" || i.status === "PENDING") || null;
+  }, [activeIncidentData, incidents]);
+
+  const hasActiveEmergency = Boolean(
+    activeIncident &&
+    (activeIncident.status === "ACTIVE" || activeIncident.status === "PENDING")
+  );
   const pendingApprovalsCount = approvals.filter((a) => a.status === "PENDING").length;
 
   const deployedResourceIds = useMemo(() => {
@@ -1851,53 +1866,68 @@ export default function App({ user, onLogout }) {
                 ====================================================== */}
             {isAdmin && activeTab === "command" && (
               <div className="ops-command-flow">
-                {/* ACTIVE EMERGENCY DOMINANT PANEL (IF INCIDENT ACTIVE) */}
+                {/* ACTIVE EMERGENCY DOMINANT HUD PANEL (IF INCIDENT ACTIVE) */}
                 {hasActiveEmergency && activeIncident && (
-                  <div className="active-incident-dominant-bar">
+                  <div className="active-incident-dominant-bar ops-panel">
                     <div className="bar-hazard-strip">
                       <div className="bar-title-block">
-                        <Flame size={20} className="text-red" />
+                        <div className="hazard-beacon-pill">
+                          <Flame size={18} className="text-red" />
+                          <span className="beacon-pulse" />
+                        </div>
                         <div>
-                          <h3>ACTIVE EMERGENCY: {activeIncident.incident_type?.toUpperCase()} — {activeIncident.location}</h3>
-                          <span className="meta-sub">Reported at {new Date(activeIncident.created_at).toLocaleTimeString()} by {activeIncident.student_name}</span>
+                          <div className="hazard-tag-row">
+                            <span className="emergency-alert-tag">LIVE EMERGENCY IN PROGRESS</span>
+                            <span className="sev-tag sev-critical">CRITICAL SEVERITY</span>
+                          </div>
+                          <h3>ACTIVE {activeIncident.incident_type?.toUpperCase()} HAZARD AT {activeIncident.location?.toUpperCase()}</h3>
+                          <span className="meta-sub">
+                            Reported at {new Date(activeIncident.created_at).toLocaleTimeString()} by <strong>{activeIncident.student_name || "Campus Sentinel"}</strong>
+                          </span>
                         </div>
                       </div>
+
                       <div className="bar-actions-block">
-                        <span className="sev-tag sev-critical">CRITICAL SEVERITY</span>
                         <button
-                          className="btn-ops-resolve-direct"
+                          type="button"
+                          className="btn-resolve-emergency-hud"
                           onClick={() => handleResolveIncident(activeIncident.incident_id)}
                         >
-                          Mark as Resolved
+                          <Check size={14} />
+                          <span>Mark Incident as Resolved</span>
                         </button>
                       </div>
                     </div>
 
                     <div className="bar-details-grid">
-                      <div className="b-field">
+                      <div className="b-field triage-box">
                         <span className="b-lbl">SITUATION ASSESSMENT & AI TRIAGE:</span>
-                        <p>{activeIncident.summary || activeIncident.description}</p>
+                        <p>{activeIncident.summary || activeIncident.description || "Active emergency response in progress. Units deploying."}</p>
                       </div>
+
                       {activeIncident.image_data && (
                         <div className="b-evidence">
                           <span className="b-lbl">EVIDENCE PHOTO:</span>
-                          <img
-                            src={activeIncident.image_data}
-                            alt="Incident Evidence"
-                            className="b-evidence-thumb"
-                            onClick={() => setSelectedIncidentModal(activeIncident)}
-                          />
+                          <div className="evidence-thumb-wrapper" onClick={() => setSelectedIncidentModal(activeIncident)}>
+                            <img
+                              src={activeIncident.image_data}
+                              alt="Incident Evidence"
+                              className="b-evidence-thumb"
+                            />
+                            <span className="zoom-hint">Click to Zoom</span>
+                          </div>
                         </div>
                       )}
-                      <div className="b-field">
-                        <span className="b-lbl">DEPLOYED UNITS:</span>
+
+                      <div className="b-field units-box">
+                        <span className="b-lbl">DEPLOYED RESPONDER UNITS:</span>
                         <div className="unit-tags-row">
                           {activeIncident.deployed_resources?.length > 0 ? (
                             activeIncident.deployed_resources.map((u) => (
                               <span key={u} className="unit-tag-pill">🚨 {u}</span>
                             ))
                           ) : (
-                            <span className="col-val text-gray">Awaiting authorization</span>
+                            <span className="col-val text-gray">Standby / Awaiting Commander Authorization</span>
                           )}
                         </div>
                       </div>

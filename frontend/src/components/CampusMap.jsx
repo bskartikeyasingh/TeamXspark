@@ -268,12 +268,14 @@ export default function CampusMap({
   const incidentType =
     activeIncident?.incident_type || activeIncident?.incident?.incident_type || "General";
   const incidentStatus =
-    activeIncident?.status || activeIncident?.incident?.status || "PENDING";
+    activeIncident?.status || activeIncident?.incident?.status || "";
 
-  // Only show active emergency if location exists AND incident is not RESOLVED, CLOSED, or REJECTED
+  // Only show active emergency if activeIncident exists and is actively ACTIVE, PENDING or APPROVED
   const isEmergencyActive = Boolean(
+    (activeIncident || incidentLocation) &&
     rawLocation &&
     rawLocation.trim() &&
+    (incidentStatus === "ACTIVE" || incidentStatus === "PENDING" || incidentStatus === "APPROVED") &&
     incidentStatus !== "RESOLVED" &&
     incidentStatus !== "CLOSED" &&
     incidentStatus !== "REJECTED"
