@@ -103,6 +103,19 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
+      if (!auth) {
+        // Direct Authentication mode when Firebase credentials are not provided
+        const demoUid = "STU_" + Math.random().toString(36).substring(2, 9);
+        onLogin({
+          uid: demoUid,
+          email: email.trim(),
+          displayName: fullName.trim() || email.split("@")[0],
+          role: "student",
+          studentId: studentId.trim() || "STU-2026",
+        });
+        return;
+      }
+
       let userCredential;
 
       if (mode === "login") {
@@ -130,6 +143,7 @@ export default function Login({ onLogin }) {
       } catch (backendError) {
         console.warn("Backend student sync:", backendError);
       }
+
 
       if (mode === "register") {
         setSuccessMsg("Account created successfully! Initializing session...");
@@ -169,8 +183,14 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
+      if (!auth || !googleProvider) {
+        setError("Google Sign-In requires Firebase API key. Please use Email/Password login for direct access.");
+        return;
+      }
+
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
+
 
       try {
         await axios.post(`${API_BASE_URL}/api/auth/firebase`, {
