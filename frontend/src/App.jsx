@@ -1588,127 +1588,182 @@ export default function App({ user, onLogout }) {
                 ====================================================== */}
             {!isAdmin && activeTab === "report" && (
               <div className="student-report-tab-view">
-                <div className="ops-panel full-report-panel">
-                  <div className="ops-panel-header header-red-accent">
-                    <div className="flex-row-center">
-                      <AlertTriangle size={18} className="text-red" />
-                      <h2>OFFICIAL CAMPUS EMERGENCY REPORT</h2>
-                    </div>
-                    <span className="panel-status-sub">DIRECT EOC DISPATCH INTAKE</span>
-                  </div>
-
-                  <form onSubmit={handleReportEmergency} className="ops-form-stacked form-spacious">
-                    {reportError && <div className="form-alert-error">{reportError}</div>}
-                    {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
-
-                    <div className="form-field">
-                      <label className="field-title">CAMPUS LOCATION *</label>
-                      <input
-                        type="text"
-                        placeholder="Type or select location below (e.g. N Block, Pharmacy Block, Library...)"
-                        value={location}
-                        onChange={(e) => setLocation(e.target.value)}
-                        required
-                        className="ops-input"
-                      />
-
-                      <div className="quick-select-header">
-                        <span className="selector-title">QUICK SELECT CAMPUS ZONE:</span>
+                <div className="report-tab-grid">
+                  {/* LEFT: MAIN REPORT FORM */}
+                  <div className="ops-panel full-report-panel">
+                    <div className="ops-panel-header header-red-accent">
+                      <div className="flex-row-center">
+                        <AlertTriangle size={18} className="text-red" />
+                        <h2>OFFICIAL CAMPUS EMERGENCY REPORT</h2>
                       </div>
-                      <div className="location-grid-selector">
-                        {QUICK_LOCATIONS.map((loc) => {
-                          const isSelected = location.toLowerCase().trim() === loc.name.toLowerCase().trim();
-                          return (
-                            <button
-                              key={loc.name}
-                              type="button"
-                              className={`location-card-chip ${isSelected ? "selected" : ""}`}
-                              onClick={() => setLocation(loc.name)}
-                            >
-                              <span className="loc-card-icon">{loc.icon}</span>
-                              <div className="loc-card-meta">
-                                <strong>{loc.name}</strong>
-                                <small>{loc.desc}</small>
-                              </div>
-                              {isSelected && <span className="loc-check-dot">✓</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <span className="panel-status-sub">DIRECT EOC DISPATCH INTAKE</span>
                     </div>
 
-                    <div className="form-field">
-                      <div className="field-label-split">
-                        <label className="field-title">INCIDENT DESCRIPTION *</label>
-                        <button
-                          type="button"
-                          className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
-                          onClick={toggleVoiceInput}
-                        >
-                          {isListening ? <MicOff size={12} /> : <Mic size={12} />}
-                          <span>{isListening ? "RECORDING..." : "VOICE INPUT"}</span>
-                        </button>
-                      </div>
+                    <form onSubmit={handleReportEmergency} className="ops-form-stacked form-spacious">
+                      {reportError && <div className="form-alert-error">{reportError}</div>}
+                      {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
 
-                      <div className="textarea-wrapper">
-                        <textarea
-                          rows={4}
-                          maxLength={500}
-                          placeholder="Provide exact details: nature of emergency, casualties, floor, room number..."
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
+                      <div className="form-field">
+                        <label className="field-title">CAMPUS LOCATION *</label>
+                        <input
+                          type="text"
+                          placeholder="Type or select location below (e.g. N Block, Pharmacy Block, Library...)"
+                          value={location}
+                          onChange={(e) => setLocation(e.target.value)}
                           required
-                          className="ops-textarea"
+                          className="ops-input"
                         />
-                        <div className="textarea-footer">
-                          <span className="char-count-badge">{description.length} / 500 characters</span>
+
+                        <div className="quick-select-header">
+                          <span className="selector-title">QUICK SELECT CAMPUS ZONE:</span>
+                        </div>
+                        <div className="location-grid-selector">
+                          {QUICK_LOCATIONS.map((loc) => {
+                            const isSelected = location.toLowerCase().trim() === loc.name.toLowerCase().trim();
+                            return (
+                              <button
+                                key={loc.name}
+                                type="button"
+                                className={`location-card-chip ${isSelected ? "selected" : ""}`}
+                                onClick={() => setLocation(loc.name)}
+                              >
+                                <span className="loc-card-icon">{loc.icon}</span>
+                                <div className="loc-card-meta">
+                                  <strong>{loc.name}</strong>
+                                  <small>{loc.desc}</small>
+                                </div>
+                                {isSelected && <span className="loc-check-dot">✓</span>}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
-                    </div>
 
-                    <div className="form-field">
-                      <label className="field-title">PHOTOGRAPHIC EVIDENCE</label>
-                      {imagePreview ? (
-                        <div className="evidence-staged-box">
-                          <div className="evidence-preview-inner">
-                            <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
-                            <div className="staged-meta">
-                              <span className="staged-name">Photo Evidence Staged</span>
-                              <span className="staged-sub">Ready to submit with emergency report</span>
-                            </div>
-                          </div>
-                          <button type="button" className="btn-remove-evidence" onClick={removeImage}>
-                            <X size={13} /> Remove Evidence
+                      <div className="form-field">
+                        <div className="field-label-split">
+                          <label className="field-title">INCIDENT DESCRIPTION *</label>
+                          <button
+                            type="button"
+                            className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
+                            onClick={toggleVoiceInput}
+                          >
+                            {isListening ? <MicOff size={12} /> : <Mic size={12} />}
+                            <span>{isListening ? "RECORDING..." : "VOICE INPUT"}</span>
                           </button>
                         </div>
-                      ) : (
-                        <label htmlFor="incident-image-input-tab" className="evidence-drop-trigger">
-                          <div className="drop-icon-circle">
-                            <ImageIcon size={18} />
+
+                        <div className="textarea-wrapper">
+                          <textarea
+                            rows={4}
+                            maxLength={500}
+                            placeholder="Provide exact details: nature of emergency, casualties, floor, room number..."
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            required
+                            className="ops-textarea"
+                          />
+                          <div className="textarea-footer">
+                            <span className="char-count-badge">{description.length} / 500 characters</span>
                           </div>
-                          <div className="drop-text-block">
-                            <strong>Attach Incident Photograph</strong>
-                            <span>Click to browse or drop photo evidence (PNG/JPG Max 5MB)</span>
+                        </div>
+                      </div>
+
+                      <div className="form-field">
+                        <label className="field-title">PHOTOGRAPHIC EVIDENCE</label>
+                        {imagePreview ? (
+                          <div className="evidence-staged-box">
+                            <div className="evidence-preview-inner">
+                              <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                              <div className="staged-meta">
+                                <span className="staged-name">Photo Evidence Staged</span>
+                                <span className="staged-sub">Ready to submit with emergency report</span>
+                              </div>
+                            </div>
+                            <button type="button" className="btn-remove-evidence" onClick={removeImage}>
+                              <X size={13} /> Remove Evidence
+                            </button>
                           </div>
-                        </label>
-                      )}
-                      <input
-                        id="incident-image-input-tab"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageChange}
-                        style={{ display: "none" }}
-                      />
+                        ) : (
+                          <label htmlFor="incident-image-input-tab" className="evidence-drop-trigger">
+                            <div className="drop-icon-circle">
+                              <ImageIcon size={18} />
+                            </div>
+                            <div className="drop-text-block">
+                              <strong>Attach Incident Photograph</strong>
+                              <span>Click to browse or drop photo evidence (PNG/JPG Max 5MB)</span>
+                            </div>
+                          </label>
+                        )}
+                        <input
+                          id="incident-image-input-tab"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageChange}
+                          style={{ display: "none" }}
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="btn-transmit-emergency btn-large"
+                        disabled={reportLoading}
+                      >
+                        {reportLoading ? "TRANSMITTING TO COMMAND CENTER..." : "TRANSMIT EMERGENCY REPORT →"}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* RIGHT: EMERGENCY GUIDELINES & HOTLINES */}
+                  <div className="report-side-cards">
+                    {/* GUIDELINES CARD */}
+                    <div className="ops-panel side-guidelines-card">
+                      <div className="ops-panel-header">
+                        <div className="flex-row-center">
+                          <ShieldCheck size={16} className="text-green" />
+                          <h3>EMERGENCY PROTOCOLS</h3>
+                        </div>
+                        <span className="panel-status-sub">VIGNAN DIRECTIVES</span>
+                      </div>
+                      <div className="side-card-body">
+                        <div className="protocol-item">
+                          <span className="protocol-badge fire">🔥 FIRE & HAZMAT</span>
+                          <p>Evacuate immediately via designated stairwells. Do NOT use elevators. Proceed directly to Convocation Hall or Playground.</p>
+                        </div>
+                        <div className="protocol-item">
+                          <span className="protocol-badge medical">🚑 MEDICAL CRITICAL</span>
+                          <p>Keep corridors clear for ambulance ingress. Administer first aid if certified, or await FAU response teams.</p>
+                        </div>
+                        <div className="protocol-item">
+                          <span className="protocol-badge security">🛡️ SECURITY & THREAT</span>
+                          <p>Seek shelter in secure rooms. Barricade entry if necessary. Avoid recording or gathering around active perimeters.</p>
+                        </div>
+                      </div>
                     </div>
 
-                    <button
-                      type="submit"
-                      className="btn-transmit-emergency btn-large"
-                      disabled={reportLoading}
-                    >
-                      {reportLoading ? "TRANSMITTING TO COMMAND CENTER..." : "TRANSMIT EMERGENCY REPORT"}
-                    </button>
-                  </form>
+                    {/* HOTLINES & SHELTERS CARD */}
+                    <div className="ops-panel side-hotlines-card">
+                      <div className="ops-panel-header">
+                        <div className="flex-row-center">
+                          <Phone size={16} className="text-cyan" />
+                          <h3>EMERGENCY DISPATCH HOTLINES</h3>
+                        </div>
+                      </div>
+                      <div className="side-card-body">
+                        <div className="hotline-row">
+                          <span>Campus Security Control:</span>
+                          <strong className="font-mono text-cyan">+91 98480 12345</strong>
+                        </div>
+                        <div className="hotline-row">
+                          <span>Medical Emergency Center:</span>
+                          <strong className="font-mono text-green">+91 94401 55501</strong>
+                        </div>
+                        <div className="hotline-row">
+                          <span>Fire Response Unit:</span>
+                          <strong className="font-mono text-red">+91 98660 77701</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

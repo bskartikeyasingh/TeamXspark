@@ -1453,6 +1453,95 @@ button {
   color: #fff;
 }
 
+/* ============================================================
+   10. REPORT TAB DEDICATED VIEW (2-COLUMN GRID)
+   ============================================================ */
+
+.student-report-tab-view {
+  max-width: 1260px;
+  margin: 0 auto;
+}
+
+.report-tab-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 18px;
+}
+
+@media (max-width: 1024px) {
+  .report-tab-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.report-side-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.side-card-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.protocol-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.protocol-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.protocol-badge.fire {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.protocol-badge.medical {
+  background: rgba(16, 185, 129, 0.12);
+  color: #a7f3d0;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.protocol-badge.security {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.protocol-item p {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.hotline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.hotline-row span {
+  color: var(--text-secondary);
+}
+
 /* Toast Notifications */
 .ops-toast-bar {
   position: fixed;
@@ -1492,3 +1581,4 @@ button {
   from { transform: translateY(16px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
