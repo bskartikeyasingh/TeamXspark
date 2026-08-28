@@ -2168,9 +2168,25 @@ export default function App({ user, onLogout }) {
                 </div>
 
                 {incidentsLoading ? (
-                  <div className="ops-loading-box">Loading incident repository...</div>
+                  <div className="ops-panel ops-empty-container">
+                    <div className="empty-icon-box">
+                      <RefreshCw size={24} className="text-cyan spin-anim" />
+                    </div>
+                    <h3>Loading Incident Repository...</h3>
+                    <p>Synchronizing audit records and evidence metadata.</p>
+                  </div>
                 ) : filteredIncidents.length === 0 ? (
-                  <div className="ops-empty-box">No matching incident records found.</div>
+                  <div className="ops-panel ops-empty-container">
+                    <div className="empty-icon-box">
+                      <ShieldCheck size={32} className="text-green" />
+                    </div>
+                    <h3>No Incident Records Found</h3>
+                    <p>
+                      {incidentFilterStatus !== "ALL" || incidentSearchQuery
+                        ? "No incidents match the active filters or search criteria."
+                        : "Campus sectors are operating normally. No emergency incident reports filed."}
+                    </p>
+                  </div>
                 ) : (
                   <div className="ops-table-container">
                     <table className="ops-data-table">
