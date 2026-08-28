@@ -28,6 +28,8 @@ import {
   KeyRound,
   Layers,
   LayoutDashboard,
+  LayoutGrid,
+  List,
   Lock,
   LogOut,
   Map,
@@ -132,6 +134,7 @@ export default function App({ user, onLogout }) {
   const [selectedIncidentModal, setSelectedIncidentModal] = useState(null);
   const [incidentSearchQuery, setIncidentSearchQuery] = useState("");
   const [incidentFilterStatus, setIncidentFilterStatus] = useState("ALL");
+  const [incidentViewMode, setIncidentViewMode] = useState("cards");
 
   // Admin Approvals State
   const [approvals, setApprovals] = useState([]);
@@ -2135,59 +2138,249 @@ export default function App({ user, onLogout }) {
             {/* ======================================================
                 8. INCIDENT ARCHIVE & REPOSITORY (STUDENT & ADMIN)
                 ====================================================== */}
+            {/* ======================================================
+                8. INCIDENT ARCHIVE & REPOSITORY (STUDENT & ADMIN)
+                ====================================================== */}
             {activeTab === "incidents" && (
               <div className="ops-tabular-view">
-                <div className="view-action-header">
-                  <div>
-                    <h2>{isAdmin ? "CAMPUS INCIDENT ARCHIVE" : "MY SUBMITTED INCIDENT LOG"}</h2>
-                    <span className="sub-title">Historical emergency events, evidence repository, and response intelligence</span>
-                  </div>
-                  <div className="incident-archive-controls-row">
-                    <div className="incident-filter-pills">
-                      {["ALL", "ACTIVE", "PENDING", "APPROVED", "RESOLVED"].map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          className={`inc-filter-chip ${incidentFilterStatus === st ? "active" : ""}`}
-                          onClick={() => setIncidentFilterStatus(st)}
-                        >
-                          {st}
-                        </button>
-                      ))}
+                {/* 1. HERO HEADER & SUMMARY RIBBON */}
+                <div className="incident-archive-hero">
+                  <div className="archive-hero-title-block">
+                    <div className="archive-badge-pill">
+                      <ClipboardList size={14} className="text-cyan" />
+                      <span>{isAdmin ? "CAMPUS DISPATCH REPOSITORY" : "STUDENT SAFETY AUDIT LOG"}</span>
                     </div>
-                    <div className="search-filter-box">
-                      <Search size={13} className="text-gray" />
-                      <input
-                        type="text"
-                        placeholder="Search by ID, location, type..."
-                        value={incidentSearchQuery}
-                        onChange={(e) => setIncidentSearchQuery(e.target.value)}
-                      />
+                    <h2>{isAdmin ? "CAMPUS INCIDENT ARCHIVE" : "MY SUBMITTED INCIDENT LOG"}</h2>
+                    <p>Real-time audit records of reported emergencies, AI response blueprints, responder fleet dispatches, and evidence repository.</p>
+                  </div>
+
+                  <div className="archive-metrics-grid">
+                    <div className="archive-metric-card">
+                      <div className="metric-icon-box cyan">
+                        <FileText size={16} />
+                      </div>
+                      <div className="metric-info">
+                        <strong>{incidents.length}</strong>
+                        <span>TOTAL FILED</span>
+                      </div>
+                    </div>
+
+                    <div className={`archive-metric-card ${incidents.filter(i => i.status === "ACTIVE").length > 0 ? "active-alert" : ""}`}>
+                      <div className="metric-icon-box red">
+                        <Flame size={16} />
+                      </div>
+                      <div className="metric-info">
+                        <strong>{incidents.filter(i => i.status === "ACTIVE").length}</strong>
+                        <span>ACTIVE RESPONSE</span>
+                      </div>
+                    </div>
+
+                    <div className="archive-metric-card">
+                      <div className="metric-icon-box amber">
+                        <Clock size={16} />
+                      </div>
+                      <div className="metric-info">
+                        <strong>{incidents.filter(i => i.status === "PENDING").length}</strong>
+                        <span>PENDING INTAKE</span>
+                      </div>
+                    </div>
+
+                    <div className="archive-metric-card">
+                      <div className="metric-icon-box green">
+                        <ShieldCheck size={16} />
+                      </div>
+                      <div className="metric-info">
+                        <strong>{incidents.filter(i => i.status === "RESOLVED").length}</strong>
+                        <span>RESOLVED & SAFE</span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
+                {/* 2. FILTER TABS, SEARCH & VIEW TOGGLE BAR */}
+                <div className="incident-controls-bar ops-panel">
+                  <div className="filter-chips-cluster">
+                    {[
+                      { key: "ALL", label: "All Incidents", count: incidents.length },
+                      { key: "ACTIVE", label: "Active", count: incidents.filter(i => i.status === "ACTIVE").length },
+                      { key: "PENDING", label: "Pending", count: incidents.filter(i => i.status === "PENDING").length },
+                      { key: "APPROVED", label: "Approved", count: incidents.filter(i => i.status === "APPROVED").length },
+                      { key: "RESOLVED", label: "Resolved", count: incidents.filter(i => i.status === "RESOLVED").length },
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        className={`inc-filter-pill-btn ${incidentFilterStatus === tab.key ? "active" : ""}`}
+                        onClick={() => setIncidentFilterStatus(tab.key)}
+                      >
+                        <span>{tab.label}</span>
+                        <span className="pill-count">{tab.count}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="controls-right-group">
+                    <div className="cyber-search-wrapper">
+                      <Search size={14} className="search-icon text-cyan" />
+                      <input
+                        type="text"
+                        placeholder="Search by ID, location, incident type..."
+                        value={incidentSearchQuery}
+                        onChange={(e) => setIncidentSearchQuery(e.target.value)}
+                        className="cyber-search-input"
+                      />
+                      {incidentSearchQuery && (
+                        <button type="button" className="btn-clear-search" onClick={() => setIncidentSearchQuery("")}>
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="view-mode-toggle">
+                      <button
+                        type="button"
+                        className={`btn-view-mode ${incidentViewMode === "cards" ? "active" : ""}`}
+                        onClick={() => setIncidentViewMode("cards")}
+                        title="Visual Cards View"
+                      >
+                        <LayoutGrid size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn-view-mode ${incidentViewMode === "table" ? "active" : ""}`}
+                        onClick={() => setIncidentViewMode("table")}
+                        title="Data Table View"
+                      >
+                        <List size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. MAIN INCIDENT CONTENT */}
                 {incidentsLoading ? (
                   <div className="ops-panel ops-empty-container">
-                    <div className="empty-icon-box">
-                      <RefreshCw size={24} className="text-cyan spin-anim" />
+                    <div className="empty-radar-wrapper">
+                      <RefreshCw size={28} className="text-cyan spin-anim" />
                     </div>
-                    <h3>Loading Incident Repository...</h3>
-                    <p>Synchronizing audit records and evidence metadata.</p>
+                    <h3>Synchronizing Incident Repository...</h3>
+                    <p>Fetching incident telemetry, response plans, and verified photographic evidence from secure database.</p>
                   </div>
                 ) : filteredIncidents.length === 0 ? (
                   <div className="ops-panel ops-empty-container">
-                    <div className="empty-icon-box">
-                      <ShieldCheck size={32} className="text-green" />
+                    <div className="empty-radar-wrapper">
+                      <div className="radar-wave" />
+                      <ShieldCheck size={36} className="text-green" />
                     </div>
-                    <h3>No Incident Records Found</h3>
+                    <h3>Zero Incident Records Found</h3>
                     <p>
                       {incidentFilterStatus !== "ALL" || incidentSearchQuery
-                        ? "No incidents match the active filters or search criteria."
-                        : "Campus sectors are operating normally. No emergency incident reports filed."}
+                        ? `No incident reports match "${incidentSearchQuery || incidentFilterStatus}". Try adjusting your filters.`
+                        : "All campus sectors are secure under 24/7 Aegis monitoring. No emergency incident reports filed."}
                     </p>
+                    {!isAdmin && (
+                      <button
+                        type="button"
+                        className="btn-empty-report-action"
+                        onClick={() => setActiveTab("report")}
+                      >
+                        <AlertTriangle size={14} />
+                        <span>Report An Emergency Now →</span>
+                      </button>
+                    )}
+                  </div>
+                ) : incidentViewMode === "cards" ? (
+                  /* ================= CARDS GRID VIEW ================= */
+                  <div className="incident-cards-grid">
+                    {filteredIncidents.map((inc) => {
+                      const isAct = inc.status === "ACTIVE";
+                      const isRes = inc.status === "RESOLVED";
+                      return (
+                        <div
+                          key={inc.incident_id}
+                          className={`incident-ops-card ${isAct ? "card-status-active" : isRes ? "card-status-resolved" : ""}`}
+                        >
+                          <div className="incident-card-top-strip">
+                            <div className="type-badge-cluster">
+                              <span className={`sev-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
+                                {inc.severity} SEVERITY
+                              </span>
+                              <span className={`status-tag status-${(inc.status || "pending").toLowerCase()}`}>
+                                <span className={`status-indicator-dot ${isAct ? "dot-pulse-red" : isRes ? "dot-green" : "dot-amber"}`} />
+                                {inc.status}
+                              </span>
+                            </div>
+                            <span className="card-incident-id font-mono font-bold">{inc.incident_id}</span>
+                          </div>
+
+                          <div className="incident-card-main-body">
+                            <div className="card-incident-header">
+                              <div className="hazard-avatar">
+                                {inc.incident_type?.toLowerCase().includes("fire") ? "🔥" :
+                                 inc.incident_type?.toLowerCase().includes("medical") ? "🚑" :
+                                 inc.incident_type?.toLowerCase().includes("security") ? "🛡️" : "⚡"}
+                              </div>
+                              <div>
+                                <h4 className="card-incident-title">{inc.incident_type?.toUpperCase()}</h4>
+                                <span className="card-location-tag">
+                                  <MapPin size={12} className="text-cyan" />
+                                  <strong>{inc.location}</strong>
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="card-incident-desc">{inc.description || "No specific details provided."}</p>
+
+                            {inc.image_data && (
+                              <div className="card-evidence-attachment" onClick={() => setSelectedIncidentModal(inc)}>
+                                <img src={inc.image_data} alt="Evidence" className="evidence-card-thumb" />
+                                <div className="evidence-attachment-label">
+                                  <ImageIcon size={12} className="text-cyan" />
+                                  <span>Photographic Evidence Attached (Click to Inspect)</span>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="card-meta-details-row">
+                              <span className="meta-item">
+                                <Clock size={11} className="text-gray" />
+                                <span>{new Date(inc.created_at).toLocaleString()}</span>
+                              </span>
+                              {isAdmin && inc.student_name && (
+                                <span className="meta-item">
+                                  <User size={11} className="text-gray" />
+                                  <span>Reported by: <strong>{inc.student_name}</strong></span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="incident-card-actions-footer">
+                            <button
+                              type="button"
+                              className="btn-card-inspect-full"
+                              onClick={() => setSelectedIncidentModal(inc)}
+                            >
+                              <Eye size={13} />
+                              <span>Inspect Full Response Plan & Evidence</span>
+                              <ChevronRight size={13} />
+                            </button>
+                            {isAdmin && isAct && (
+                              <button
+                                type="button"
+                                className="btn-table-resolve"
+                                onClick={() => handleResolveIncident(inc.incident_id)}
+                              >
+                                <Check size={12} /> Resolve
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
+                  /* ================= DATA TABLE VIEW ================= */
                   <div className="ops-table-container">
                     <table className="ops-data-table">
                       <thead>
@@ -2206,16 +2399,21 @@ export default function App({ user, onLogout }) {
                       <tbody>
                         {filteredIncidents.map((inc) => (
                           <tr key={inc.incident_id}>
-                            <td className="font-mono font-bold">{inc.incident_id}</td>
+                            <td className="font-mono font-bold text-cyan">{inc.incident_id}</td>
                             <td className="font-mono text-gray">{new Date(inc.created_at).toLocaleString()}</td>
-                            <td>{inc.incident_type}</td>
-                            <td>{inc.location}</td>
+                            <td><strong>{inc.incident_type}</strong></td>
+                            <td>
+                              <span className="table-loc-pill">
+                                <MapPin size={11} className="text-cyan" />
+                                {inc.location}
+                              </span>
+                            </td>
                             <td>
                               <span className={`sev-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
                                 {inc.severity}
                               </span>
                             </td>
-                            {isAdmin && <td>{inc.student_name}</td>}
+                            {isAdmin && <td>{inc.student_name || "—"}</td>}
                             <td>
                               {inc.image_data ? (
                                 <img
@@ -2239,7 +2437,7 @@ export default function App({ user, onLogout }) {
                                   className="btn-table-inspect"
                                   onClick={() => setSelectedIncidentModal(inc)}
                                 >
-                                  Inspect
+                                  Inspect Plan
                                 </button>
                                 {isAdmin && inc.status === "ACTIVE" && (
                                   <button
