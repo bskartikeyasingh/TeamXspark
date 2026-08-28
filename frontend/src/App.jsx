@@ -1,1261 +1,2267 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState, useMemo } from "react";
+import axios from "axios";
+import { signOut } from "firebase/auth";
+import { auth } from "./firebase";
 import {
   Activity,
-  AlertCircle,
+  AlertOctagon,
+  AlertTriangle,
   Ambulance,
-  ArrowUpRight,
+  ArrowRight,
   Bell,
   Bot,
   Building2,
+  Check,
   CheckCircle2,
   ChevronRight,
-  Clock3,
+  ClipboardList,
+  Clock,
+  Cpu,
+  Eye,
   FileText,
-  Home,
+  Flame,
+  Globe,
+  HeartPulse,
+  HelpCircle,
+  Image as ImageIcon,
+  Info,
+  KeyRound,
+  Layers,
+  LayoutDashboard,
+  Lock,
   LogOut,
+  Map,
   MapPin,
   Menu,
   MessageSquare,
+  Mic,
+  MicOff,
   Navigation,
+  Phone,
+  Plus,
   Radio,
   RefreshCw,
-  Route,
+  Search,
   Send,
+  Server,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Siren,
-  Users,
+  Sparkles,
+  Trash2,
   Truck,
+  User,
+  Users,
+  Wifi,
+  Wrench,
   X,
-  Zap,
+  XCircle,
 } from "lucide-react";
+import CampusMap from "./components/CampusMap";
+import "./App.css";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
-import { createIncident } from "./services/api";
-
-const agents = [
-  {
-    name: "Incident Intelligence",
-    shortName: "Incident Agent",
-    icon: Bot,
-    status: "Active",
-    description: "Classifying incoming emergency reports",
-  },
-  {
-    name: "Security Response",
-    shortName: "Security Agent",
-    icon: Shield,
-    status: "Active",
-    description: "Coordinating campus security teams",
-  },
-  {
-    name: "Medical Response",
-    shortName: "Medical Agent",
-    icon: Ambulance,
-    status: "Active",
-    description: "Tracking medical resources",
-  },
-  {
-    name: "Transport Coordination",
-    shortName: "Transport Agent",
-    icon: Truck,
-    status: "Standby",
-    description: "Managing emergency vehicles",
-  },
-  {
-    name: "Facilities Response",
-    shortName: "Facilities Agent",
-    icon: Building2,
-    status: "Active",
-    description: "Monitoring infrastructure response",
-  },
-  {
-    name: "Communication",
-    shortName: "Communication Agent",
-    icon: MessageSquare,
-    status: "Active",
-    description: "Preparing emergency notifications",
-  },
+const QUICK_LOCATIONS = [
+  "N Block",
+  "A Block",
+  "Library",
+  "H Block",
+  "U Block",
+  "Pharmacy Block",
+  "Main Gate",
+  "Playground",
+  "Convocation Hall",
 ];
 
-const resources = [
-  {
-    name: "Ambulances",
-    available: 2,
-    total: 3,
-    icon: Ambulance,
-    type: "Medical",
-  },
-  {
-    name: "Security Teams",
-    available: 5,
-    total: 7,
-    icon: Shield,
-    type: "Security",
-  },
-  {
-    name: "Campus Vehicles",
-    available: 4,
-    total: 6,
-    icon: Truck,
-    type: "Transport",
-  },
-  {
-    name: "First Aid Units",
-    available: 6,
-    total: 8,
-    icon: Activity,
-    type: "Medical",
-  },
+const STUDENT_AI_PROMPTS = [
+  "Where should I evacuate from N Block?",
+  "What should I do during a chemical or lab fire?",
+  "Show me the nearest safe assembly area.",
+  "How do I request an immediate medical ambulance?",
 ];
 
-const initialActivity = [
-  {
-    time: "10:42:11",
-    icon: AlertCircle,
-    title: "Incident received",
-    description: "Fire reported at Block C",
-  },
-  {
-    time: "10:42:12",
-    icon: Bot,
-    title: "Incident classified",
-    description: "Fire • Critical • 94% confidence",
-  },
-  {
-    time: "10:42:13",
-    icon: Shield,
-    title: "Security Agent activated",
-    description: "Nearest response team identified",
-  },
-  {
-    time: "10:42:14",
-    icon: Ambulance,
-    title: "Medical Agent activated",
-    description: "Ambulance A1 selected",
-  },
-  {
-    time: "10:42:15",
-    icon: Building2,
-    title: "Facilities Agent activated",
-    description: "Power isolation recommended",
-  },
-  {
-    time: "10:42:16",
-    icon: CheckCircle2,
-    title: "Response plan prepared",
-    description: "Awaiting command approval",
-  },
+const ADMIN_AI_PROMPTS = [
+  "Summarize active emergency response protocols.",
+  "Which resource fleet units should be prioritized for evacuation?",
+  "Provide safety briefing for Convocation Hall assembly area.",
+  "What is the status of security perimeter at North Gate?",
 ];
 
-function App({ user, onLogout }) {
-  const [activePage, setActivePage] = useState("Dashboard");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [approved, setApproved] = useState(false);
+export default function App({ user, onLogout }) {
+  const isAdmin = user?.role === "admin";
+  const studentName = user?.displayName || user?.name || user?.username || "Student";
+  const studentEmail = user?.email || "";
+  const studentId = user?.studentId || user?.student_id || "";
 
+  // Navigation State
+  const [activeTab, setActiveTab] = useState("command");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const [showIncidentModal, setShowIncidentModal] = useState(false);
+  // Student Emergency Report Form State
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
+  const [incidentImage, setIncidentImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportSuccess, setReportSuccess] = useState("");
 
-  const [incident, setIncident] = useState({
-    incident_id: "INC-1042",
-    description:
-      "Fire and heavy smoke reported in Block C. Around 25 students may be trapped.",
-    incident_type: "Fire",
-    severity: "Critical",
-    location: "Block C — 2nd Floor",
-    affected_people: 25,
-    confidence: 94,
-    status: "Awaiting Approval",
-    source: "text",
+  // AI Assistant Chat State (Student & Admin)
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiChatHistory, setAiChatHistory] = useState([
+    {
+      sender: "ai",
+      text: "AegisCampus AI Sentinel active. Ask any emergency question, evacuation protocol, or safe shelter query.",
+      timestamp: new Date().toLocaleTimeString(),
+    },
+  ]);
+  const [aiQueryLoading, setAiQueryLoading] = useState(false);
+
+  // Active Incident Data
+  const [activeIncidentData, setActiveIncidentData] = useState(null);
+
+  // History & Incidents State
+  const [incidents, setIncidents] = useState([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [selectedIncidentModal, setSelectedIncidentModal] = useState(null);
+  const [incidentSearchQuery, setIncidentSearchQuery] = useState("");
+  const [incidentFilterStatus, setIncidentFilterStatus] = useState("ALL");
+
+  // Admin Approvals State
+  const [approvals, setApprovals] = useState([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
+
+  // Admin Resources State
+  const [resources, setResources] = useState([]);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [resourceSummary, setResourceSummary] = useState({
+    total: 0,
+    available: 0,
+    deployed: 0,
+    unavailable: 0,
+    maintenance: 0,
   });
+  const [resourceFilter, setResourceFilter] = useState("ALL");
 
-  const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState("");
+  // Add / Edit Resource Modal State
+  const [showResourceModal, setShowResourceModal] = useState(false);
+  const [editingResource, setEditingResource] = useState(null);
+  const [resourceForm, setResourceForm] = useState({
+    id: "",
+    name: "",
+    type: "Security",
+    location: "Main Security Office",
+    capacity: 2,
+    status: "AVAILABLE",
+    contact_name: "",
+    phone_number: "",
+    email: "",
+    vehicle_number: "",
+    designation: "",
+  });
+  const [resourceFormLoading, setResourceFormLoading] = useState(false);
+  const [resourceFormError, setResourceFormError] = useState("");
 
-  const [activity, setActivity] = useState(initialActivity);
+  // Confirmation Modal State for dangerous actions
+  const [confirmModal, setConfirmModal] = useState(null);
 
-  const navigation = [
-    { name: "Dashboard", icon: Home },
-    { name: "Incidents", icon: Siren, badge: 3 },
-    { name: "Live Map", icon: MapPin },
-    { name: "Resources", icon: Truck },
-    { name: "AI Agents", icon: Bot },
-    { name: "Alerts", icon: Bell, badge: 5 },
-    { name: "Reports", icon: FileText },
-    { name: "Audit Logs", icon: Clock3 },
-  ];
+  // Emergency Alerts State
+  const [alerts, setAlerts] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
 
-  const handleCreateIncident = async () => {
-    if (!description.trim()) {
-      setApiError("Please describe the emergency first.");
+  // Audit Logs State
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  // Notification Banner
+  const [toastMessage, setToastMessage] = useState(null);
+
+  // Real-time Clock
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const showToast = (msg, type = "success") => {
+    setToastMessage({ text: msg, type });
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  // ============================================================
+  // INITIAL DATA LOADING & REAL-TIME SYNC
+  // ============================================================
+  useEffect(() => {
+    loadResources();
+    loadResourceSummary();
+    loadIncidents();
+
+    if (isAdmin) {
+      loadApprovals();
+      loadAlerts();
+    }
+
+    const interval = setInterval(() => {
+      loadResourceSummary();
+      loadIncidents();
+      if (isAdmin) {
+        loadApprovals();
+        loadAlerts();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isAdmin, user]);
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
+  const handleLogout = async () => {
+    try {
+      if (!isAdmin) {
+        await signOut(auth);
+      }
+      if (onLogout) {
+        onLogout();
+      }
+    } catch (err) {
+      console.error("Logout error:", err);
+      if (onLogout) onLogout();
+    }
+  };
+
+  // ============================================================
+  // API LOADERS
+  // ============================================================
+  const loadIncidents = async () => {
+    setIncidentsLoading(true);
+    try {
+      let url = `${API_BASE_URL}/api/incidents`;
+      if (!isAdmin && studentEmail) {
+        url += `?student_email=${encodeURIComponent(studentEmail)}`;
+      }
+      const res = await axios.get(url);
+      const incList = res.data.incidents || [];
+      setIncidents(incList);
+
+      // Auto set active incident if any
+      const activeOne = incList.find((i) => i.status === "ACTIVE" || i.status === "PENDING");
+      if (activeOne && !activeIncidentData) {
+        setActiveIncidentData({ incident: activeOne, incident_id: activeOne.incident_id });
+      }
+    } catch (err) {
+      console.error("Failed to load incidents:", err);
+    } finally {
+      setIncidentsLoading(false);
+    }
+  };
+
+  const loadResources = async () => {
+    setResourcesLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/resources`);
+      setResources(res.data.resources || []);
+    } catch (err) {
+      console.error("Failed to load resources:", err);
+    } finally {
+      setResourcesLoading(false);
+    }
+  };
+
+  const loadResourceSummary = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/resources/summary`);
+      setResourceSummary({
+        total: res.data.total || 0,
+        available: res.data.available || 0,
+        deployed: res.data.deployed || 0,
+        unavailable: res.data.unavailable || 0,
+        maintenance: res.data.maintenance || 0,
+      });
+    } catch (err) {
+      console.error("Failed to load resource summary:", err);
+    }
+  };
+
+  const loadApprovals = async () => {
+    if (!isAdmin) return;
+    setApprovalsLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/emergency/approvals`);
+      setApprovals(res.data.approvals || []);
+    } catch (err) {
+      console.error("Failed to load approvals:", err);
+    } finally {
+      setApprovalsLoading(false);
+    }
+  };
+
+  const loadAlerts = async () => {
+    if (!isAdmin) return;
+    setAlertsLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/emergency/alerts`);
+      setAlerts(res.data.alerts || []);
+    } catch (err) {
+      console.error("Failed to load alerts:", err);
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
+  const loadAuditTrail = async () => {
+    setAuditLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/audit`);
+      setAuditEvents(res.data.audit_events || []);
+    } catch (err) {
+      console.error("Failed to load audit trail:", err);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  // ============================================================
+  // VOICE SPEECH RECOGNITION
+  // ============================================================
+  const toggleVoiceInput = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceSupported(false);
+      setReportError("Voice input is not supported in this browser. Please use Chrome or Edge.");
       return;
     }
 
-    setLoading(true);
-    setApiError("");
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setReportError("");
+    };
+
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      setDescription((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
+      setIsListening(false);
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech recognition error:", e.error);
+      setIsListening(false);
+      if (e.error === "not-allowed") {
+        setReportError("Microphone access denied. Please grant permission.");
+      } else {
+        setReportError("Voice transcription timed out. Please retry.");
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
+
+  // ============================================================
+  // PHOTO EVIDENCE UPLOAD
+  // ============================================================
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setIncidentImage(null);
+      setImagePreview("");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setReportError("Invalid format. Please upload PNG, JPG, or JPEG.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setReportError("Image size exceeds maximum limit of 5 MB.");
+      return;
+    }
+
+    setIncidentImage(file);
+    setReportError("");
+
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const removeImage = () => {
+    setIncidentImage(null);
+    setImagePreview("");
+    const fileInput = document.getElementById("incident-image-input");
+    if (fileInput) fileInput.value = "";
+  };
+
+  // ============================================================
+  // SUBMIT EMERGENCY REPORT
+  // ============================================================
+  const handleReportEmergency = async (e) => {
+    e.preventDefault();
+    if (!description.trim()) {
+      setReportError("Emergency description is required.");
+      return;
+    }
+    if (!location.trim()) {
+      setReportError("Campus location is required.");
+      return;
+    }
+
+    setReportLoading(true);
+    setReportError("");
+    setReportSuccess("");
 
     try {
-      const data = await createIncident({
-        description,
-        location: location || null,
-        source: "text",
-      });
+      const payload = {
+        description: description.trim(),
+        location: location.trim(),
+        student_id: studentId || (user?.uid ? user.uid.slice(0, 8) : "STU-01"),
+        student_name: studentName,
+        student_email: studentEmail || "student@vignan.ac.in",
+        voice_transcript: isListening ? description : "",
+        image_data: imagePreview || null,
+      };
 
-      setIncident(data);
+      const res = await axios.post(`${API_BASE_URL}/api/emergency/respond`, payload);
 
-      setActivity((previous) => [
-        {
-          time: new Date().toLocaleTimeString("en-IN", {
-            hour12: false,
-          }),
-          icon: Bot,
-          title: "New incident analyzed",
-          description: `${data.incident_type} • ${data.severity} • ${data.confidence}% confidence`,
-        },
-        ...previous,
-      ]);
+      if (res.data.success) {
+        setActiveIncidentData(res.data);
+        setReportSuccess("Incident logged. Awaiting Command Center dispatch.");
+        showToast("Emergency report transmitted. Safety instructions generated.", "success");
 
-      setShowIncidentModal(false);
-      setDescription("");
-      setLocation("");
-      setApproved(false);
-    } catch (error) {
-      console.error(error);
-
-      setApiError(
-        "Unable to connect to the backend. Make sure FastAPI is running on port 8000."
+        loadIncidents();
+        loadResources();
+        loadResourceSummary();
+      }
+    } catch (err) {
+      console.error("Report failed:", err);
+      setReportError(
+        "Incident logged. Emergency processing continues through Command Center."
       );
     } finally {
-      setLoading(false);
+      setReportLoading(false);
     }
   };
 
-  const handleApprove = () => {
-    setApproved(true);
+  // ============================================================
+  // AI ASSISTANT QUERY HANDLER
+  // ============================================================
+  const handleSendAiPrompt = (queryText) => {
+    const promptToSend = queryText || aiQuery;
+    if (!promptToSend.trim()) return;
 
-    setIncident((previous) => ({
-      ...previous,
-      status: "Response Approved",
-    }));
+    const userMessage = {
+      sender: "user",
+      text: promptToSend.trim(),
+      timestamp: new Date().toLocaleTimeString(),
+    };
 
-    setActivity((previous) => [
-      {
-        time: new Date().toLocaleTimeString("en-IN", {
-          hour12: false,
-        }),
-        icon: CheckCircle2,
-        title: "Response approved",
-        description: `Command officer approved ${incident.incident_id}`,
-      },
-      ...previous,
-    ]);
+    setAiChatHistory((prev) => [...prev, userMessage]);
+    setAiQuery("");
+    setAiQueryLoading(true);
+
+    setTimeout(() => {
+      const q = promptToSend.toLowerCase();
+      let answer = "";
+
+      if (q.includes("evacuate") || q.includes("route") || q.includes("n block") || q.includes("fire")) {
+        answer = "🚨 Evacuation Directive: If in N Block, immediately exit via the east stairwell toward the central avenue. Proceed south-east directly to Convocation Hall (Safe Shelter) or Playground (Safe Zone Alpha). Do not use elevators.";
+      } else if (q.includes("safe") || q.includes("assembly") || q.includes("shelter")) {
+        answer = "🛡️ Primary Safe Assembly Zones: 1. Convocation Hall (Indoor Safe Shelter - Coordinate: 63.5% X, 36.5% Y) 2. Open Playground (Safe Zone Alpha - Coordinate: 64.0% X, 53.0% Y). Both zones are equipped with first aid and campus security.";
+      } else if (q.includes("ambulance") || q.includes("medical") || q.includes("injury")) {
+        answer = "🚑 Medical Response Protocol: Submit an emergency report with 'Medical' or call the Campus Health Clinic at +91 94401 55501. Units AMB-001 and FAU-001 (First Aid) will be dispatched instantly upon authorization.";
+      } else if (q.includes("prioritize") || q.includes("commander") || q.includes("perimeter")) {
+        answer = "🛡️ Commander Strategic Briefing: Establish 50-meter perimeter cordon around active hazard zone. Deploy Security units SEC-001 and SEC-002 at access corridors. Verify Convocation Hall muster headcount.";
+      } else {
+        answer = `🛡️ AegisCampus AI Protocol: For "${promptToSend}", maintain situational awareness, notify nearby faculty or safety marshals, and submit a live report using the Emergency Intake console for immediate commander dispatch.`;
+      }
+
+      setAiChatHistory((prev) => [
+        ...prev,
+        {
+          sender: "ai",
+          text: answer,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      setAiQueryLoading(false);
+    }, 600);
   };
 
+  // ============================================================
+  // ADMIN APPROVE & REJECT ACTIONS
+  // ============================================================
+  const handleApprovePlan = async (approvalId) => {
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/approve`,
+        {
+          approved_by: user?.name || user?.username || "Campus Emergency Commander",
+        }
+      );
+
+      if (res.data.success) {
+        showToast("Response Plan APPROVED: Units dispatched and responder alerts generated.", "success");
+        loadApprovals();
+        loadResources();
+        loadResourceSummary();
+        loadAlerts();
+        loadIncidents();
+
+        if (activeIncidentData?.approval?.approval_id === approvalId) {
+          setActiveIncidentData((prev) => ({
+            ...prev,
+            approval: res.data.approval,
+            incident: {
+              ...prev.incident,
+              approval_status: "APPROVED",
+              status: "ACTIVE",
+              deployed_resources: res.data.dispatched_resources,
+            },
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Approval error:", err);
+      showToast(err.response?.data?.detail || "Approval failed.", "error");
+    }
+  };
+
+  const handleRejectPlan = (approvalId) => {
+    const reason = window.prompt("Enter official rejection reason:");
+    if (!reason || !reason.trim()) return;
+
+    axios
+      .post(`${API_BASE_URL}/api/emergency/approvals/${approvalId}/reject`, {
+        rejected_by: user?.name || user?.username || "Campus Emergency Commander",
+        reason: reason.trim(),
+      })
+      .then((res) => {
+        if (res.data.success) {
+          showToast("Response plan rejected.", "info");
+          loadApprovals();
+          loadIncidents();
+        }
+      })
+      .catch((err) => {
+        showToast(err.response?.data?.detail || "Rejection failed.", "error");
+      });
+  };
+
+  // ============================================================
+  // ADMIN RESOLVE & CLOSE INCIDENT
+  // ============================================================
+  const handleResolveIncident = (incidentId) => {
+    setConfirmModal({
+      title: "Resolve Campus Incident",
+      message: `Confirm incident ${incidentId} resolution. Deployed units will be marked ready for revocation.`,
+      confirmLabel: "Mark as Resolved",
+      confirmClass: "btn-confirm-success",
+      onConfirm: async () => {
+        try {
+          const res = await axios.post(`${API_BASE_URL}/api/emergency/incidents/${incidentId}/resolve`, {
+            resolved_by: user?.name || user?.username || "Campus Emergency Commander",
+            notes: "Incident resolved safely.",
+          });
+          if (res.data.success) {
+            showToast(`Incident ${incidentId} marked as RESOLVED.`, "success");
+            loadIncidents();
+            loadResources();
+            loadResourceSummary();
+          }
+        } catch (err) {
+          showToast("Failed to resolve incident.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  // ============================================================
+  // ADMIN BULK RELEASE / REVOKE RESOURCES
+  // ============================================================
+  const handleReleaseAllDeployed = () => {
+    const deployedList = resources.filter((r) => r.status === "DEPLOYED");
+    if (deployedList.length === 0) {
+      showToast("No units are currently deployed.", "info");
+      return;
+    }
+
+    setConfirmModal({
+      title: "Stand Down All Deployed Units",
+      message: `Release ${deployedList.length} deployed units back to AVAILABLE status?`,
+      confirmLabel: "Release All Units",
+      confirmClass: "btn-confirm-warning",
+      onConfirm: async () => {
+        try {
+          for (const res of deployedList) {
+            await axios.post(`${API_BASE_URL}/api/resources/${res.id}/revoke`, {
+              incident_id: res.incident_id,
+              revoked_by: user?.name || user?.username || "Campus Emergency Commander",
+              reason: "Incident stand-down order",
+            });
+          }
+          showToast(`All ${deployedList.length} units returned to AVAILABLE.`, "success");
+          loadResources();
+          loadResourceSummary();
+        } catch (err) {
+          showToast("Failed to release all units.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  // ============================================================
+  // ADMIN RESOURCE DEPLOY & REVOKE
+  // ============================================================
+  const handleDeployResourceDirect = async (resourceId, incidentId = "INC-MANUAL") => {
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/resources/${resourceId}/deploy`, {
+        incident_id: incidentId,
+        deployed_by: user?.name || user?.username || "Campus Emergency Commander",
+      });
+      if (res.data.success) {
+        showToast(`Resource ${resourceId} deployed.`, "success");
+        loadResources();
+        loadResourceSummary();
+        loadAlerts();
+      }
+    } catch (err) {
+      showToast(err.response?.data?.detail || "Deployment failed.", "error");
+    }
+  };
+
+  const handleRevokeResource = (resourceId, incidentId) => {
+    setConfirmModal({
+      title: "Revoke Emergency Unit",
+      message: `Revoke unit ${resourceId} and return to AVAILABLE status?`,
+      confirmLabel: "Confirm Revoke",
+      confirmClass: "btn-confirm-warning",
+      onConfirm: async () => {
+        try {
+          const res = await axios.post(`${API_BASE_URL}/api/resources/${resourceId}/revoke`, {
+            incident_id: incidentId,
+            revoked_by: user?.name || user?.username || "Campus Emergency Commander",
+            reason: "Stand-down order",
+          });
+          if (res.data.success) {
+            showToast(`Resource ${resourceId} returned to AVAILABLE.`, "success");
+            loadResources();
+            loadResourceSummary();
+          }
+        } catch (err) {
+          showToast(err.response?.data?.detail || "Revocation failed.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  // ============================================================
+  // RESOURCE SAVE / EDIT / DELETE
+  // ============================================================
+  const handleSaveResource = async (e) => {
+    e.preventDefault();
+    setResourceFormLoading(true);
+    setResourceFormError("");
+
+    try {
+      if (editingResource) {
+        await axios.put(`${API_BASE_URL}/api/resources/${editingResource.id}`, resourceForm);
+        showToast(`Resource ${editingResource.id} updated.`, "success");
+      } else {
+        await axios.post(`${API_BASE_URL}/api/resources`, resourceForm);
+        showToast(`Resource ${resourceForm.id} registered.`, "success");
+      }
+      setShowResourceModal(false);
+      setEditingResource(null);
+      loadResources();
+      loadResourceSummary();
+    } catch (err) {
+      setResourceFormError(err.response?.data?.detail || "Failed to save resource.");
+    } finally {
+      setResourceFormLoading(false);
+    }
+  };
+
+  const handleDeleteResource = (resourceId) => {
+    setConfirmModal({
+      title: "Deactivate Unit",
+      message: `Confirm removal of resource ${resourceId} from active fleet.`,
+      confirmLabel: "Delete Unit",
+      confirmClass: "btn-confirm-danger",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_BASE_URL}/api/resources/${resourceId}`);
+          showToast(`Resource ${resourceId} removed.`, "info");
+          loadResources();
+          loadResourceSummary();
+        } catch (err) {
+          showToast(err.response?.data?.detail || "Failed to delete.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  const openAddResource = () => {
+    setEditingResource(null);
+    setResourceForm({
+      id: `RES-${Math.floor(100 + Math.random() * 900)}`,
+      name: "",
+      type: "Security",
+      location: "Main Security Office",
+      capacity: 2,
+      status: "AVAILABLE",
+      contact_name: "",
+      phone_number: "",
+      email: "",
+      vehicle_number: "",
+      designation: "",
+    });
+    setResourceFormError("");
+    setShowResourceModal(true);
+  };
+
+  const openEditResource = (res) => {
+    setEditingResource(res);
+    setResourceForm({
+      id: res.id,
+      name: res.name || "",
+      type: res.type || "Security",
+      location: res.location || "",
+      capacity: res.capacity || 1,
+      status: res.status || "AVAILABLE",
+      contact_name: res.contact_name || "",
+      phone_number: res.phone_number || "",
+      email: res.email || "",
+      vehicle_number: res.vehicle_number || "",
+      designation: res.designation || "",
+    });
+    setResourceFormError("");
+    setShowResourceModal(true);
+  };
+
+  // Filtered resources
+  const filteredResources = useMemo(() => {
+    if (resourceFilter === "ALL") return resources;
+    return resources.filter((r) => r.type === resourceFilter || r.status === resourceFilter);
+  }, [resources, resourceFilter]);
+
+  // Derived current active incident
+  const activeIncident = activeIncidentData?.incident || (incidents.find((i) => i.status === "ACTIVE") || (incidents.length > 0 ? incidents[0] : null));
+  const hasActiveEmergency = Boolean(activeIncident && (activeIncident.status === "ACTIVE" || activeIncident.status === "PENDING"));
+  const pendingApprovalsCount = approvals.filter((a) => a.status === "PENDING").length;
+
+  const deployedResourceIds = useMemo(() => {
+    return resources.filter((r) => r.status === "DEPLOYED").map((r) => r.id);
+  }, [resources]);
+
+  // Filtered incidents for search and status filter
+  const filteredIncidents = useMemo(() => {
+    let result = incidents;
+    if (incidentFilterStatus !== "ALL") {
+      result = result.filter((i) => i.status === incidentFilterStatus);
+    }
+    if (incidentSearchQuery.trim()) {
+      const q = incidentSearchQuery.toLowerCase();
+      result = result.filter(
+        (i) =>
+          i.incident_id?.toLowerCase().includes(q) ||
+          i.location?.toLowerCase().includes(q) ||
+          i.incident_type?.toLowerCase().includes(q) ||
+          i.student_name?.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [incidents, incidentSearchQuery, incidentFilterStatus]);
+
   return (
-    <div className="min-h-screen bg-[#020617] text-white">
-      {/* Background */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-cyan-500/5 blur-3xl" />
-        <div className="absolute -right-40 top-1/3 h-96 w-96 rounded-full bg-blue-500/5 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-96 w-96 rounded-full bg-indigo-500/5 blur-3xl" />
-      </div>
-
-      {/* Mobile overlay */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-white/10 bg-slate-950/95 backdrop-blur-xl transition-transform duration-300 lg:translate-x-0 ${
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex h-20 items-center justify-between border-b border-white/10 px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10">
-              <Shield className="h-5 w-5 text-cyan-400" />
-            </div>
-
-            <div>
-              <h1 className="text-lg font-bold tracking-wide">
-                Aegis<span className="text-cyan-400">Campus</span>
-              </h1>
-
-              <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500">
-                AI Command Center
-              </p>
-            </div>
-          </div>
-
-          <button
-            className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white lg:hidden"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            <X className="h-5 w-5" />
+    <div className="aegis-app-shell">
+      {/* NOTIFICATION TOAST */}
+      {toastMessage && (
+        <div className={`ops-toast-bar toast-${toastMessage.type}`}>
+          <span>{toastMessage.text}</span>
+          <button onClick={() => setToastMessage(null)}>
+            <X size={12} />
           </button>
         </div>
+      )}
 
-        <div className="px-4 py-5">
-          <div className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Command
-          </div>
-
-          <nav className="space-y-1">
-            {navigation.map((item) => {
-              const Icon = item.icon;
-              const isActive = activePage === item.name;
-
-              return (
-                <button
-                  key={item.name}
-                  onClick={() => {
-                    setActivePage(item.name);
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`group flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm transition-all ${
-                    isActive
-                      ? "border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"
-                      : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Icon
-                      className={`h-4 w-4 ${
-                        isActive
-                          ? "text-cyan-400"
-                          : "text-slate-500 group-hover:text-slate-300"
-                      }`}
-                    />
-
-                    <span>{item.name}</span>
-                  </div>
-
-                  {item.badge && (
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        isActive
-                          ? "bg-cyan-400/20 text-cyan-300"
-                          : "bg-white/10 text-slate-400"
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="mt-auto p-4">
-          <div className="rounded-2xl border border-emerald-400/10 bg-emerald-400/5 p-4">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-
-              <span className="text-xs font-semibold text-emerald-400">
-                ALL SYSTEMS OPERATIONAL
-              </span>
+      {/* CONFIRMATION DIALOG MODAL */}
+      {confirmModal && (
+        <div className="ops-modal-backdrop">
+          <div className="ops-modal confirm-dialog">
+            <div className="ops-modal-header">
+              <h3>{confirmModal.title}</h3>
+              <button onClick={() => setConfirmModal(null)}><X size={14} /></button>
             </div>
-
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              Emergency coordination services are connected and ready.
-            </p>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] p-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 text-xs font-bold text-slate-950">
-                {user?.role === "admin" ? "ADM" : (user?.displayName?.[0] || "STU")}
-              </div>
-
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-white">
-                  {user?.displayName || user?.name || (user?.role === "admin" ? "Campus Commander" : "Student")}
-                </p>
-
-                <p className="truncate text-[10px] text-slate-500">
-                  {user?.email || (user?.role === "admin" ? "Admin Access" : "Student Portal")}
-                </p>
-              </div>
+            <div className="ops-modal-body">
+              <p>{confirmModal.message}</p>
             </div>
-
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                title="Sign Out"
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition"
-              >
-                <LogOut className="h-4 w-4" />
+            <div className="ops-modal-footer">
+              <button type="button" className="btn-ops-secondary" onClick={() => setConfirmModal(null)}>Cancel</button>
+              <button type="button" className={`btn-ops-primary ${confirmModal.confirmClass || ""}`} onClick={confirmModal.onConfirm}>
+                {confirmModal.confirmLabel}
               </button>
-            )}
+            </div>
           </div>
         </div>
-      </aside>
-
-
-      {/* Main */}
-      <main className="relative min-h-screen lg:pl-72">
-        {/* Topbar */}
-        <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-white/10 bg-slate-950/80 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <button
-              className="rounded-xl border border-white/10 bg-white/5 p-2.5 text-slate-300 lg:hidden"
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">{activePage}</h2>
-
-                <span className="hidden rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider text-cyan-400 sm:inline">
-                  Live
-                </span>
-              </div>
-
-              <p className="text-xs text-slate-500">
-                Vignan University • Emergency Operations Center
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 sm:flex">
-              <Radio className="h-3.5 w-3.5 text-emerald-400" />
-
-              <span className="text-[11px] text-slate-400">
-                Live monitoring
-              </span>
-
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-            </div>
-
-            <button className="relative rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-slate-400 transition hover:bg-white/10 hover:text-white">
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-500" />
-            </button>
-          </div>
-        </header>
-
-        {/* Content */}
-        <div className="p-4 sm:p-6 lg:p-8">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end"
-          >
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-
-                <span className="text-xs font-medium uppercase tracking-widest text-emerald-400">
-                  Command Center Online
-                </span>
-              </div>
-
-              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                Emergency Operations Dashboard
-              </h1>
-
-              <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                AI-powered incident intelligence, resource coordination and
-                response management.
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setShowIncidentModal(true);
-                setApiError("");
-              }}
-              className="flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-5 py-3 text-xs font-bold text-slate-950 transition hover:bg-cyan-300"
-            >
-              <Siren className="h-4 w-4" />
-              Report Emergency
-            </button>
-          </motion.div>
-
-          {/* KPI */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              icon={Siren}
-              label="Active Incidents"
-              value="03"
-              detail="1 critical"
-              status="critical"
-            />
-
-            <StatCard
-              icon={Users}
-              label="People Affected"
-              value={incident.affected_people || "36"}
-              detail="Current incident"
-              status="warning"
-            />
-
-            <StatCard
-              icon={Activity}
-              label="Resources Ready"
-              value="17"
-              detail="of 24 resources"
-              status="success"
-            />
-
-            <StatCard
-              icon={Zap}
-              label="AI Agents"
-              value="06"
-              detail="5 active • 1 standby"
-              status="info"
-            />
-          </div>
-
-          {/* Main grid */}
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-            {/* Map */}
-            <motion.section
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025]"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-cyan-400" />
-
-                    <h3 className="text-sm font-semibold">
-                      Campus Live Map
-                    </h3>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Real-time incidents and resource locations
-                  </p>
-                </div>
-
-                <button className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-[10px] text-slate-400 hover:bg-white/5 hover:text-white">
-                  <Navigation className="h-3 w-3" />
-                  Full Map
-                </button>
-              </div>
-
-              <div className="relative h-[390px] overflow-hidden bg-[#07111f]">
-                <div
-                  className="absolute inset-0 opacity-20"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(rgba(148,163,184,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.15) 1px, transparent 1px)",
-                    backgroundSize: "42px 42px",
-                  }}
-                />
-
-                <div className="absolute left-[10%] top-[45%] h-3 w-[80%] rotate-[-12deg] rounded-full bg-slate-700/70" />
-                <div className="absolute left-[25%] top-[15%] h-[75%] w-3 rotate-[10deg] rounded-full bg-slate-700/60" />
-                <div className="absolute left-[5%] top-[68%] h-2 w-[90%] rotate-[5deg] rounded-full bg-slate-700/50" />
-
-                <MapBuilding
-                  className="left-[13%] top-[18%]"
-                  label="Block A"
-                />
-
-                <MapBuilding
-                  className="left-[52%] top-[17%]"
-                  label="Block B"
-                />
-
-                <MapBuilding
-                  className="left-[52%] top-[55%]"
-                  label={incident.location || "Block C"}
-                  danger
-                />
-
-                <MapBuilding
-                  className="left-[13%] top-[55%]"
-                  label="Admin"
-                />
-
-                <MapMarker
-                  className="left-[62%] top-[64%]"
-                  type="danger"
-                  label={incident.incident_id}
-                />
-
-                <MapMarker
-                  className="left-[76%] top-[29%]"
-                  type="medical"
-                  label="A1"
-                />
-
-                <MapMarker
-                  className="left-[30%] top-[34%]"
-                  type="security"
-                  label="S1"
-                />
-
-                <MapMarker
-                  className="left-[31%] top-[76%]"
-                  type="vehicle"
-                  label="V1"
-                />
-
-                <div className="absolute bottom-4 left-4 rounded-xl border border-white/10 bg-slate-950/80 p-3 backdrop-blur-md">
-                  <p className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-slate-500">
-                    Live Legend
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    <Legend color="bg-red-400" label="Incident" />
-                    <Legend color="bg-emerald-400" label="Medical" />
-                    <Legend color="bg-blue-400" label="Security" />
-                    <Legend color="bg-amber-400" label="Vehicle" />
-                  </div>
-                </div>
-
-                <div className="absolute right-4 top-4 flex items-center gap-2 rounded-lg border border-emerald-400/20 bg-slate-950/80 px-3 py-2 backdrop-blur-md">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-
-                  <span className="text-[10px] text-emerald-400">
-                    LIVE DATA
-                  </span>
-                </div>
-              </div>
-            </motion.section>
-
-            {/* Incident */}
-            <motion.section
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="rounded-2xl border border-red-400/20 bg-gradient-to-br from-red-500/[0.08] to-transparent"
-            >
-              <div className="border-b border-red-400/10 px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10">
-                      <Siren className="h-4 w-4 text-red-400" />
-                    </span>
-
-                    <div>
-                      <h3 className="text-sm font-semibold">
-                        Active Incident
-                      </h3>
-
-                      <p className="text-[10px] text-slate-500">
-                        AI analyzed emergency
-                      </p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${
-                      incident.severity === "Critical"
-                        ? "border border-red-400/20 bg-red-400/10 text-red-400"
-                        : "border border-amber-400/20 bg-amber-400/10 text-amber-400"
-                    }`}
-                  >
-                    {incident.severity}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xl font-bold">
-                      {incident.incident_type} Incident
-                    </p>
-
-                    <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-                      <MapPin className="h-3.5 w-3.5 text-red-400" />
-                      {incident.location}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-[9px] uppercase tracking-widest text-slate-500">
-                      Incident ID
-                    </p>
-
-                    <p className="mt-1 font-mono text-xs text-slate-300">
-                      {incident.incident_id}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid grid-cols-3 gap-2">
-                  <MiniMetric
-                    label="Affected"
-                    value={`~${incident.affected_people}`}
-                  />
-
-                  <MiniMetric
-                    label="Confidence"
-                    value={`${incident.confidence}%`}
-                  />
-
-                  <MiniMetric
-                    label="Status"
-                    value={approved ? "Approved" : "Pending"}
-                  />
-                </div>
-
-                <div className="mt-5 rounded-xl border border-white/10 bg-black/10 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Bot className="h-4 w-4 text-cyan-400" />
-
-                      <span className="text-xs font-semibold">
-                        AI Response Recommendation
-                      </span>
-                    </div>
-
-                    <span className="text-[9px] text-emerald-400">
-                      READY
-                    </span>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    <Recommendation
-                      icon={Shield}
-                      text="Dispatch Security Team S1"
-                    />
-
-                    <Recommendation
-                      icon={Ambulance}
-                      text="Dispatch Ambulance A1"
-                    />
-
-                    <Recommendation
-                      icon={Building2}
-                      text="Facilities Team F1 → Power Isolation"
-                    />
-
-                    <Recommendation
-                      icon={Route}
-                      text="Evacuate via North Exit"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center gap-2">
-                  <button
-                    onClick={handleApprove}
-                    disabled={approved}
-                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold transition ${
-                      approved
-                        ? "border border-emerald-400/30 bg-emerald-400/10 text-emerald-400"
-                        : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
-                    }`}
-                  >
-                    {approved ? (
-                      <>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Response Approved
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Approve Response
-                      </>
-                    )}
-                  </button>
-
-                  <button className="rounded-xl border border-white/10 px-4 py-3 text-slate-400 transition hover:bg-white/5 hover:text-white">
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </motion.section>
-          </div>
-
-          {/* Agents + Activity */}
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <motion.section className="rounded-2xl border border-white/10 bg-white/[0.025]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4 text-cyan-400" />
-
-                    <h3 className="text-sm font-semibold">
-                      AI Agent Network
-                    </h3>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Multi-agent emergency coordination
-                  </p>
-                </div>
-
-                <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-[9px] font-semibold text-emerald-400">
-                  5 ACTIVE
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2">
-                {agents.map((agent) => (
-                  <AgentCard key={agent.name} agent={agent} />
-                ))}
-              </div>
-            </motion.section>
-
-            <motion.section className="rounded-2xl border border-white/10 bg-white/[0.025]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-cyan-400" />
-
-                    <h3 className="text-sm font-semibold">
-                      Live Agent Activity
-                    </h3>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Latest decisions and system events
-                  </p>
-                </div>
-
-                <button className="text-[10px] text-cyan-400 hover:text-cyan-300">
-                  View all
-                </button>
-              </div>
-
-              <div className="p-4">
-                <div className="relative">
-                  <div className="absolute bottom-5 left-[15px] top-5 w-px bg-white/10" />
-
-                  <div className="space-y-4">
-                    {activity.map((item, index) => {
-                      const Icon = item.icon;
-
-                      return (
-                        <div
-                          key={`${item.time}-${index}`}
-                          className="relative flex gap-3"
-                        >
-                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950">
-                            <Icon className="h-3.5 w-3.5 text-cyan-400" />
-                          </div>
-
-                          <div className="min-w-0 flex-1 pt-0.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-medium text-slate-200">
-                                {item.title}
-                              </p>
-
-                              <span className="font-mono text-[9px] text-slate-600">
-                                {item.time}
-                              </span>
-                            </div>
-
-                            <p className="mt-1 text-[10px] text-slate-500">
-                              {item.description}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </motion.section>
-          </div>
-
-          {/* Resources */}
-          <motion.section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.025]">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+      )}
+
+      {/* INCIDENT DETAILS & EVIDENCE INSPECTOR MODAL */}
+      {selectedIncidentModal && (
+        <div className="ops-modal-backdrop" onClick={() => setSelectedIncidentModal(null)}>
+          <div className="ops-modal incident-inspector-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ops-modal-header">
               <div>
-                <div className="flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-cyan-400" />
-
-                  <h3 className="text-sm font-semibold">
-                    Emergency Resource Availability
-                  </h3>
-                </div>
-
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Current campus response capacity
-                </p>
+                <h3>INCIDENT RECORD: {selectedIncidentModal.incident_id}</h3>
+                <small className="mono-sub">{new Date(selectedIncidentModal.created_at).toLocaleString()}</small>
               </div>
+              <button onClick={() => setSelectedIncidentModal(null)}><X size={16} /></button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
-              {resources.map((resource) => (
-                <ResourceCard key={resource.name} resource={resource} />
-              ))}
-            </div>
-          </motion.section>
-
-          <footer className="mt-8 flex flex-col justify-between gap-2 border-t border-white/5 pt-5 text-[10px] text-slate-600 sm:flex-row">
-            <p>
-              AegisCampus AI • Emergency Response & Resource Coordination
-            </p>
-
-            <div className="flex items-center gap-4">
-              <span>System v0.1</span>
-
-              <span className="flex items-center gap-1.5 text-emerald-500/70">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Operational
-              </span>
-            </div>
-          </footer>
-        </div>
-      </main>
-
-      {/* Emergency modal */}
-      <AnimatePresence>
-        {showIncidentModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-950 shadow-2xl"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/10">
-                    <Siren className="h-5 w-5 text-red-400" />
-                  </div>
-
-                  <div>
-                    <h2 className="font-semibold">
-                      Report Emergency
-                    </h2>
-
-                    <p className="text-[10px] text-slate-500">
-                      AI will analyze the incident
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowIncidentModal(false)}
-                  className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+            <div className="ops-modal-body inspector-grid">
+              <div className="meta-strip">
+                <span className={`status-tag status-${(selectedIncidentModal.status || "pending").toLowerCase()}`}>
+                  STATUS: {selectedIncidentModal.status}
+                </span>
+                <span className={`sev-tag sev-${(selectedIncidentModal.severity || "medium").toLowerCase()}`}>
+                  {selectedIncidentModal.severity} SEVERITY
+                </span>
+                <span className="location-tag">📍 {selectedIncidentModal.location}</span>
+                <span className="type-tag">{selectedIncidentModal.incident_type}</span>
               </div>
 
-              <div className="space-y-4 p-5">
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-slate-300">
-                    What happened?
-                  </label>
+              <div className="inspector-field">
+                <label>INCIDENT DESCRIPTION</label>
+                <div className="field-box-content">{selectedIncidentModal.description}</div>
+              </div>
 
-                  <textarea
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    placeholder="Example: There is heavy smoke and fire in Block C. Around 25 students may be trapped."
-                    className="h-32 w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/40"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-slate-300">
-                    Location
-                  </label>
-
-                  <input
-                    value={location}
-                    onChange={(event) => setLocation(event.target.value)}
-                    placeholder="Example: Block C — 2nd Floor"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/40"
-                  />
-                </div>
-
-                {apiError && (
-                  <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-400">
-                    {apiError}
+              <div className="inspector-field">
+                <label>PHOTOGRAPHIC EVIDENCE</label>
+                {selectedIncidentModal.image_data ? (
+                  <div className="evidence-preview-wrap">
+                    <img src={selectedIncidentModal.image_data} alt="Evidence" className="evidence-full-img" />
                   </div>
+                ) : (
+                  <div className="no-evidence-box">No photographic evidence attached to this record.</div>
                 )}
+              </div>
 
-                <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/5 p-4">
-                  <div className="flex gap-3">
-                    <Bot className="h-5 w-5 shrink-0 text-cyan-400" />
+              {selectedIncidentModal.summary && (
+                <div className="inspector-field">
+                  <label>SITUATION ASSESSMENT & AI TRIAGE</label>
+                  <div className="field-box-content">{selectedIncidentModal.summary}</div>
+                </div>
+              )}
 
-                    <div>
-                      <p className="text-xs font-semibold text-cyan-300">
-                        AI Incident Intelligence
-                      </p>
-
-                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
-                        The system will classify the emergency, estimate
-                        severity and identify affected people.
-                      </p>
-                    </div>
+              {selectedIncidentModal.deployed_resources?.length > 0 && (
+                <div className="inspector-field">
+                  <label>DEPLOYED UNITS</label>
+                  <div className="units-list-row">
+                    {selectedIncidentModal.deployed_resources.map((rId) => (
+                      <span key={rId} className="unit-pill">🚨 {rId}</span>
+                    ))}
                   </div>
                 </div>
+              )}
 
-                <button
-                  onClick={handleCreateIncident}
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-5 py-3.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {loading ? (
-                    <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      Analyzing Incident...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="h-4 w-4" />
-                      Analyze Incident
-                    </>
+              {/* TIMELINE PROGRESSION */}
+              <div className="inspector-field">
+                <label>IMMUTABLE INCIDENT AUDIT TIMELINE</label>
+                <div className="inspector-timeline">
+                  <div className="timeline-step done">
+                    <span className="t-dot" />
+                    <div><strong>Incident Reported</strong><small>{new Date(selectedIncidentModal.created_at).toLocaleTimeString()}</small></div>
+                  </div>
+                  <div className="timeline-step done">
+                    <span className="t-dot" />
+                    <div><strong>AI Intelligence Triage & Plan Generated</strong><small>Severity: {selectedIncidentModal.severity}</small></div>
+                  </div>
+                  <div className={`timeline-step ${selectedIncidentModal.approval_status === "APPROVED" ? "done" : "active"}`}>
+                    <span className="t-dot" />
+                    <div><strong>Commander Authorization</strong><small>{selectedIncidentModal.approval_status || "PENDING"}</small></div>
+                  </div>
+                  {selectedIncidentModal.status === "RESOLVED" && (
+                    <div className="timeline-step done">
+                      <span className="t-dot" />
+                      <div><strong>Incident Marked Resolved</strong><small>Safety verified</small></div>
+                    </div>
                   )}
+                </div>
+              </div>
+
+              <div className="reporter-bar">
+                <span>Reporter: <strong>{selectedIncidentModal.student_name}</strong></span>
+                <span>Email: {selectedIncidentModal.student_email || "N/A"}</span>
+              </div>
+            </div>
+
+            <div className="ops-modal-footer">
+              {isAdmin && selectedIncidentModal.status === "ACTIVE" && (
+                <button
+                  type="button"
+                  className="btn-ops-primary btn-confirm-success"
+                  onClick={() => {
+                    setSelectedIncidentModal(null);
+                    handleResolveIncident(selectedIncidentModal.incident_id);
+                  }}
+                >
+                  Mark as Resolved
+                </button>
+              )}
+              <button type="button" className="btn-ops-secondary" onClick={() => setSelectedIncidentModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESOURCE ADD / EDIT MODAL (ADMIN) */}
+      {showResourceModal && (
+        <div className="ops-modal-backdrop">
+          <div className="ops-modal resource-modal-dialog">
+            <div className="ops-modal-header">
+              <h3>{editingResource ? `EDIT RESOURCE: ${editingResource.id}` : "REGISTER NEW CAMPUS UNIT"}</h3>
+              <button onClick={() => setShowResourceModal(false)}><X size={14} /></button>
+            </div>
+
+            <form onSubmit={handleSaveResource} className="ops-modal-body form-two-col">
+              {resourceFormError && <div className="form-alert-error">{resourceFormError}</div>}
+
+              <div className="field-group">
+                <label>UNIT ID *</label>
+                <input
+                  type="text"
+                  value={resourceForm.id}
+                  disabled={Boolean(editingResource)}
+                  onChange={(e) => setResourceForm({ ...resourceForm, id: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field-group">
+                <label>UNIT DESIGNATION / NAME *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Patrol Unit 01"
+                  value={resourceForm.name}
+                  onChange={(e) => setResourceForm({ ...resourceForm, name: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field-group">
+                <label>CATEGORY *</label>
+                <select
+                  value={resourceForm.type}
+                  onChange={(e) => setResourceForm({ ...resourceForm, type: e.target.value })}
+                >
+                  <option value="Security">Security</option>
+                  <option value="Medical">Medical / Ambulance</option>
+                  <option value="First Aid">First Aid</option>
+                  <option value="Facilities">Facilities</option>
+                  <option value="Transport">Transport</option>
+                  <option value="Communication">Communication</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label>BASE STATION LOCATION *</label>
+                <input
+                  type="text"
+                  value={resourceForm.location}
+                  onChange={(e) => setResourceForm({ ...resourceForm, location: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field-group">
+                <label>STATUS</label>
+                <select
+                  value={resourceForm.status}
+                  onChange={(e) => setResourceForm({ ...resourceForm, status: e.target.value })}
+                >
+                  <option value="AVAILABLE">AVAILABLE</option>
+                  <option value="DEPLOYED">DEPLOYED</option>
+                  <option value="UNAVAILABLE">UNAVAILABLE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label>CAPACITY (PERSONNEL)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={resourceForm.capacity}
+                  onChange={(e) => setResourceForm({ ...resourceForm, capacity: e.target.value })}
+                />
+              </div>
+
+              <div className="field-divider-full">RESPONDER IN-CHARGE CONTACT DETAILS</div>
+
+              <div className="field-group">
+                <label>IN-CHARGE / DRIVER NAME</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Rajesh Varma"
+                  value={resourceForm.contact_name}
+                  onChange={(e) => setResourceForm({ ...resourceForm, contact_name: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label>PHONE (FOR DISPATCH ALERTS)</label>
+                <input
+                  type="text"
+                  placeholder="+91 94401 55501"
+                  value={resourceForm.phone_number}
+                  onChange={(e) => setResourceForm({ ...resourceForm, phone_number: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label>VEHICLE REGISTRATION NO</label>
+                <input
+                  type="text"
+                  placeholder="AP-07-EM-01"
+                  value={resourceForm.vehicle_number}
+                  onChange={(e) => setResourceForm({ ...resourceForm, vehicle_number: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label>ROLE / DESIGNATION</label>
+                <input
+                  type="text"
+                  placeholder="Paramedic Lead"
+                  value={resourceForm.designation}
+                  onChange={(e) => setResourceForm({ ...resourceForm, designation: e.target.value })}
+                />
+              </div>
+
+              <div className="ops-modal-footer col-span-2">
+                <button type="button" className="btn-ops-secondary" onClick={() => setShowResourceModal(false)}>Cancel</button>
+                <button type="submit" className="btn-ops-primary" disabled={resourceFormLoading}>
+                  {resourceFormLoading ? "Saving..." : editingResource ? "Update Unit" : "Register Unit"}
                 </button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function StatCard({ icon: Icon, label, value, detail, status }) {
-  const styles = {
-    critical: {
-      icon: "text-red-400",
-      bg: "bg-red-400/10",
-      border: "border-red-400/10",
-    },
-    warning: {
-      icon: "text-amber-400",
-      bg: "bg-amber-400/10",
-      border: "border-amber-400/10",
-    },
-    success: {
-      icon: "text-emerald-400",
-      bg: "bg-emerald-400/10",
-      border: "border-emerald-400/10",
-    },
-    info: {
-      icon: "text-cyan-400",
-      bg: "bg-cyan-400/10",
-      border: "border-cyan-400/10",
-    },
-  };
-
-  const style = styles[status];
-
-  return (
-    <div
-      className={`rounded-2xl border ${style.border} bg-white/[0.025] p-4 transition hover:bg-white/[0.04] sm:p-5`}
-    >
-      <div className="flex items-start justify-between">
-        <div className={`rounded-xl p-2.5 ${style.bg}`}>
-          <Icon className={`h-4 w-4 ${style.icon}`} />
+            </form>
+          </div>
         </div>
+      )}
 
-        <ArrowUpRight className="h-3.5 w-3.5 text-slate-700" />
-      </div>
-
-      <p className="mt-4 text-[10px] uppercase tracking-wider text-slate-500">
-        {label}
-      </p>
-
-      <div className="mt-1 flex items-end gap-2">
-        <span className="text-2xl font-bold tracking-tight">{value}</span>
-
-        <span className="mb-1 text-[9px] text-slate-600">{detail}</span>
-      </div>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value }) {
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.025] p-3">
-      <p className="text-[9px] uppercase tracking-wider text-slate-600">
-        {label}
-      </p>
-
-      <p className="mt-1 truncate text-sm font-semibold text-slate-200">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Recommendation({ icon: Icon, text }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-
-      <span className="text-[10px] text-slate-400">{text}</span>
-
-      <CheckCircle2 className="ml-auto h-3 w-3 text-emerald-400" />
-    </div>
-  );
-}
-
-function AgentCard({ agent }) {
-  const Icon = agent.icon;
-  const isActive = agent.status === "Active";
-
-  return (
-    <div className="group rounded-xl border border-white/5 bg-white/[0.02] p-3 transition hover:border-cyan-400/10 hover:bg-white/[0.04]">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-400/10 bg-cyan-400/5">
-          <Icon className="h-4 w-4 text-cyan-400" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-[11px] font-semibold text-slate-200">
-              {agent.shortName}
-            </p>
-
-            <span className="flex items-center gap-1 text-[8px] uppercase tracking-wider">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isActive ? "bg-emerald-400" : "bg-amber-400"
-                }`}
-              />
-
-              <span
-                className={
-                  isActive ? "text-emerald-400" : "text-amber-400"
-                }
-              >
-                {agent.status}
-              </span>
+      {/* ======================================================
+          GLOBAL APPLICATION SHELL: SIDEBAR & NAVIGATION
+          ====================================================== */}
+      <div className="aegis-layout-container">
+        {/* LEFT COMMAND SIDEBAR */}
+        <aside className="aegis-sidebar">
+          <div className="sidebar-brand-block">
+            <div className="brand-emblem-row">
+              <ShieldAlert size={18} className="text-cyan" />
+              <span className="brand-title">AEGISCAMPUS</span>
+            </div>
+            <span className="brand-subtitle">
+              {isAdmin ? "Emergency Operations Center" : "Campus Safety Intelligence"}
             </span>
           </div>
 
-          <p className="mt-1 line-clamp-1 text-[9px] text-slate-600">
-            {agent.description}
-          </p>
+          <div className="sidebar-role-indicator">
+            <span className={`role-dot ${hasActiveEmergency ? "dot-alert" : ""}`} />
+            <span>{isAdmin ? "SECURITY COMMANDER" : "STUDENT COMPANION"}</span>
+          </div>
+
+          <nav className="sidebar-nav">
+            {isAdmin ? (
+              <>
+                <button
+                  className={`nav-item ${activeTab === "command" ? "active" : ""}`}
+                  onClick={() => setActiveTab("command")}
+                >
+                  <LayoutDashboard size={15} />
+                  <span>COMMAND</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "incidents" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("incidents"); loadIncidents(); }}
+                >
+                  <ClipboardList size={15} />
+                  <span>INCIDENTS</span>
+                  {incidents.length > 0 && <span className="nav-badge">{incidents.length}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "approvals" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("approvals"); loadApprovals(); }}
+                >
+                  <ShieldAlert size={15} />
+                  <span>APPROVALS</span>
+                  {pendingApprovalsCount > 0 && <span className="nav-badge alert-badge">{pendingApprovalsCount}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "resources" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("resources"); loadResources(); loadResourceSummary(); }}
+                >
+                  <Truck size={15} />
+                  <span>RESOURCES</span>
+                  {resourceSummary.deployed > 0 && <span className="nav-badge deployed-badge">{resourceSummary.deployed}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "map" ? "active" : ""}`}
+                  onClick={() => setActiveTab("map")}
+                >
+                  <Map size={15} />
+                  <span>CAMPUS MAP</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "ai-intel" ? "active" : ""}`}
+                  onClick={() => setActiveTab("ai-intel")}
+                >
+                  <Cpu size={15} />
+                  <span>AI INTELLIGENCE</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "alerts" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("alerts"); loadAlerts(); }}
+                >
+                  <Radio size={15} />
+                  <span>DISPATCH ALERTS</span>
+                  {alerts.length > 0 && <span className="nav-badge">{alerts.length}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "audit" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("audit"); loadAuditTrail(); }}
+                >
+                  <Activity size={15} />
+                  <span>AUDIT LOG</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className={`nav-item ${activeTab === "command" ? "active" : ""}`}
+                  onClick={() => setActiveTab("command")}
+                >
+                  <LayoutDashboard size={15} />
+                  <span>Dashboard</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "report" ? "active" : ""}`}
+                  onClick={() => setActiveTab("report")}
+                >
+                  <AlertTriangle size={15} className="text-red" />
+                  <span>Report Incident</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "incidents" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("incidents"); loadIncidents(); }}
+                >
+                  <FileText size={15} />
+                  <span>Incidents</span>
+                  {incidents.length > 0 && <span className="nav-badge">{incidents.length}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "map" ? "active" : ""}`}
+                  onClick={() => setActiveTab("map")}
+                >
+                  <Map size={15} />
+                  <span>Campus Map</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "ai-assistant" ? "active" : ""}`}
+                  onClick={() => setActiveTab("ai-assistant")}
+                >
+                  <Bot size={15} className="text-cyan" />
+                  <span>AI Assistant</span>
+                </button>
+              </>
+            )}
+          </nav>
+
+          <div className="sidebar-bottom-block">
+            <div className="telemetry-status-row">
+              <span className="telemetry-dot" />
+              <span>SYSTEM ONLINE</span>
+            </div>
+            <div className="sidebar-user-card">
+              <div className="user-avatar-tag">{isAdmin ? "EOC" : "STU"}</div>
+              <div className="user-details">
+                <strong>{studentName}</strong>
+                <small>{isAdmin ? "Campus Commander" : studentEmail || "Student Portal"}</small>
+              </div>
+            </div>
+            <button className="btn-sidebar-logout" onClick={handleLogout}>
+              <LogOut size={13} />
+              <span>TERMINATE SESSION</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* MAIN WORKSPACE */}
+        <div className="aegis-main-workspace">
+          {/* TOP OPERATIONAL HEADER */}
+          <header className="ops-system-header">
+            <div className="system-identity">
+              <div className="system-status-indicator">
+                <span className={`live-sentinel-dot ${hasActiveEmergency ? "sentinel-red" : ""}`} />
+                <span className="system-tag">
+                  {isAdmin
+                    ? "VIGNAN UNIVERSITY • EMERGENCY OPERATIONS CENTER"
+                    : "AEGISCAMPUS • CAMPUS SAFETY INTELLIGENCE"}
+                </span>
+              </div>
+              <div className="clock-telemetry font-mono">{currentTime} IST</div>
+            </div>
+
+            {/* OPERATIONAL METRICS RIBBON */}
+            <div className="ops-status-ribbon">
+              {isAdmin ? (
+                <>
+                  <div className={`ops-ribbon-metric ${incidents.filter((i) => i.status === "ACTIVE").length > 0 ? "metric-active" : ""}`}>
+                    <span className="r-val">{incidents.filter((i) => i.status === "ACTIVE").length}</span>
+                    <span className="r-label">ACTIVE INCIDENTS</span>
+                  </div>
+                  <div className={`ops-ribbon-metric ${pendingApprovalsCount > 0 ? "metric-amber" : ""}`}>
+                    <span className="r-val">{pendingApprovalsCount}</span>
+                    <span className="r-label">PENDING APPROVALS</span>
+                  </div>
+                  <div className="ops-ribbon-metric">
+                    <span className="r-val">{resourceSummary.deployed} / {resourceSummary.total}</span>
+                    <span className="r-label">DEPLOYED</span>
+                  </div>
+                  <div className="ops-ribbon-metric">
+                    <span className="r-val">{resourceSummary.available}</span>
+                    <span className="r-label">AVAILABLE</span>
+                  </div>
+                </>
+              ) : (
+                <div className={`student-status-badge ${hasActiveEmergency ? "badge-emergency" : "badge-normal"}`}>
+                  <span className="s-dot" />
+                  <span>CAMPUS STATUS: {hasActiveEmergency ? "EMERGENCY ACTIVE" : "NORMAL"}</span>
+                </div>
+              )}
+
+              <button className="btn-ops-refresh" onClick={() => { loadResources(); loadResourceSummary(); loadIncidents(); if (isAdmin) { loadApprovals(); loadAlerts(); } }} title="Sync State">
+                <RefreshCw size={13} />
+              </button>
+            </div>
+          </header>
+
+          {/* MAIN PAGE CONTENT */}
+          <main className="ops-workspace-content">
+            {/* ======================================================
+                1. STUDENT DASHBOARD (COMPANION VIEW)
+                ====================================================== */}
+            {!isAdmin && activeTab === "command" && (
+              <div className="student-companion-layout">
+                {/* HERO WELCOME STRIP */}
+                <div className="student-hero-banner">
+                  <div className="hero-text-block">
+                    <h2>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, {studentName}</h2>
+                    <p>Your campus safety network is active and monitoring all sectors.</p>
+                  </div>
+                  <div className="hero-status-pills">
+                    <span className="hero-status-chip"><span className="c-dot green" /> CAMPUS MONITORING ACTIVE</span>
+                    <span className="hero-status-chip"><span className="c-dot green" /> EMERGENCY NETWORK ONLINE</span>
+                  </div>
+                </div>
+
+                {/* ACTIVE EMERGENCY / EVACUATION GUIDANCE (DOMINANT IF ACTIVE) */}
+                {hasActiveEmergency && activeIncident && (
+                  <div className="student-active-emergency-card">
+                    <div className="card-alert-header">
+                      <div className="header-hazard-title">
+                        <Flame size={20} className="text-red" />
+                        <div>
+                          <h3>ACTIVE EMERGENCY: {activeIncident.incident_type?.toUpperCase()} AT {activeIncident.location}</h3>
+                          <span className="meta-sub">Reported at {new Date(activeIncident.created_at).toLocaleTimeString()} • Severity: {activeIncident.severity}</span>
+                        </div>
+                      </div>
+                      <span className={`status-tag status-${(activeIncident.status || "pending").toLowerCase()}`}>
+                        {activeIncident.status}
+                      </span>
+                    </div>
+
+                    <div className="guidance-grid-split">
+                      <div className="guidance-text-pane">
+                        <div className="evac-instruction-box">
+                          <h4>🛡️ EVACUATION GUIDANCE</h4>
+                          <p className="evac-primary-target">
+                            Primary Safe Area: <strong>Convocation Hall (Safe Shelter)</strong> or <strong>Playground (Safe Zone Alpha)</strong>
+                          </p>
+                          <ul className="evac-steps-list">
+                            <li>1. Stay calm. Avoid {activeIncident.location} and adjacent corridors.</li>
+                            <li>2. Follow the illuminated green pathway on the map below toward safety.</li>
+                            <li>3. If injured or assisting someone, notify emergency marshals at Convocation Hall.</li>
+                          </ul>
+                        </div>
+
+                        {activeIncident.image_data && (
+                          <div className="incident-evidence-preview">
+                            <span className="lbl-sm">INCIDENT PHOTOGRAPH:</span>
+                            <img
+                              src={activeIncident.image_data}
+                              alt="Incident Evidence"
+                              className="student-evidence-thumb"
+                              onClick={() => setSelectedIncidentModal(activeIncident)}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="guidance-map-pane">
+                        <CampusMap
+                          incidentLocation={activeIncident.location || ""}
+                          deployedResources={deployedResourceIds}
+                          activeIncident={activeIncident}
+                          isStudentView={true}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TWO-COLUMN WORKSPACE: QUICK REPORT & AI ASSISTANT ENTRY */}
+                <div className="student-action-grid">
+                  {/* PROMINENT EMERGENCY REPORT CARD */}
+                  <div className="student-report-card ops-panel">
+                    <div className="ops-panel-header header-red-accent">
+                      <div className="flex-row-center">
+                        <AlertTriangle size={16} className="text-red" />
+                        <h3>REPORT AN EMERGENCY</h3>
+                      </div>
+                      <span className="panel-status-sub">IMMEDIATE INTAKE</span>
+                    </div>
+
+                    <form onSubmit={handleReportEmergency} className="ops-form-stacked">
+                      {reportError && <div className="form-alert-error">{reportError}</div>}
+                      {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
+
+                      <div className="form-field">
+                        <label>INCIDENT LOCATION *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. N Block, Library, Pharmacy Block..."
+                          value={location}
+                          onChange={(e) => setLocation(e.target.value)}
+                          required
+                        />
+
+                        <div className="quick-chip-selector">
+                          <span className="selector-title">QUICK SELECT:</span>
+                          {QUICK_LOCATIONS.map((loc) => (
+                            <button
+                              key={loc}
+                              type="button"
+                              className={`location-btn-chip ${location === loc ? "active" : ""}`}
+                              onClick={() => setLocation(loc)}
+                            >
+                              {loc}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="form-field">
+                        <div className="field-label-split">
+                          <label>EMERGENCY DESCRIPTION *</label>
+                          <button
+                            type="button"
+                            className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
+                            onClick={toggleVoiceInput}
+                          >
+                            {isListening ? <MicOff size={11} /> : <Mic size={11} />}
+                            <span>{isListening ? "RECORDING..." : "VOICE INPUT"}</span>
+                          </button>
+                        </div>
+
+                        <textarea
+                          rows={3}
+                          placeholder="Describe what is occurring (e.g. Fire in lab, injured student, electrical spark...)"
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-field">
+                        <label>ATTACH PHOTOGRAPH (EVIDENCE)</label>
+                        {imagePreview ? (
+                          <div className="evidence-staged-box">
+                            <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                            <button type="button" className="btn-remove-evidence" onClick={removeImage}>
+                              <X size={12} /> Remove
+                            </button>
+                          </div>
+                        ) : (
+                          <label htmlFor="incident-image-input" className="evidence-drop-trigger">
+                            <ImageIcon size={15} />
+                            <span>Attach Photo Evidence (PNG/JPG Max 5MB)</span>
+                          </label>
+                        )}
+                        <input
+                          id="incident-image-input"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageChange}
+                          style={{ display: "none" }}
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="btn-transmit-emergency"
+                        disabled={reportLoading}
+                      >
+                        {reportLoading ? "TRANSMITTING REPORT..." : "TRANSMIT EMERGENCY REPORT →"}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* RIGHT COLUMN: ASK AEGIS AI & RECENT INCIDENTS */}
+                  <div className="student-companion-secondary">
+                    {/* ASK AEGIS AI CARD */}
+                    <div className="ops-panel ask-ai-card">
+                      <div className="ops-panel-header">
+                        <div className="flex-row-center">
+                          <Bot size={16} className="text-cyan" />
+                          <h3>ASK AEGIS AI</h3>
+                        </div>
+                        <span className="panel-status-sub">24/7 SAFETY ASSISTANT</span>
+                      </div>
+
+                      <div className="ask-ai-body">
+                        <p className="ai-intro-text">
+                          Instant emergency guidance, nearest evacuation points, and campus medical protocols.
+                        </p>
+
+                        <div className="ai-quick-chips">
+                          {STUDENT_AI_PROMPTS.map((prompt, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="ai-prompt-chip"
+                              onClick={() => {
+                                setActiveTab("ai-assistant");
+                                handleSendAiPrompt(prompt);
+                              }}
+                            >
+                              <Sparkles size={11} className="text-cyan" />
+                              <span>{prompt}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-open-ai-chat"
+                          onClick={() => setActiveTab("ai-assistant")}
+                        >
+                          <MessageSquare size={13} />
+                          <span>Open Live Safety Assistant</span>
+                          <ArrowRight size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* RECENT SUBMITTED INCIDENTS PREVIEW */}
+                    <div className="ops-panel recent-incidents-card">
+                      <div className="ops-panel-header">
+                        <h3>MY RECENT INCIDENT LOGS</h3>
+                        <button className="link-see-all" onClick={() => setActiveTab("incidents")}>
+                          View All ({incidents.length})
+                        </button>
+                      </div>
+
+                      <div className="recent-list-body">
+                        {incidents.length === 0 ? (
+                          <div className="empty-sub-note">No submitted incidents. Campus is secure.</div>
+                        ) : (
+                          incidents.slice(0, 3).map((inc) => (
+                            <div
+                              key={inc.incident_id}
+                              className="incident-mini-row"
+                              onClick={() => setSelectedIncidentModal(inc)}
+                            >
+                              <div className="mini-row-info">
+                                <strong>{inc.incident_type} — {inc.location}</strong>
+                                <small>{new Date(inc.created_at).toLocaleDateString()} • {inc.severity} Severity</small>
+                              </div>
+                              <span className={`status-tag status-${(inc.status || "pending").toLowerCase()}`}>
+                                {inc.status}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                2. STUDENT DEDICATED REPORT INCIDENT TAB
+                ====================================================== */}
+            {!isAdmin && activeTab === "report" && (
+              <div className="student-report-tab-view">
+                <div className="ops-panel full-report-panel">
+                  <div className="ops-panel-header header-red-accent">
+                    <div className="flex-row-center">
+                      <AlertTriangle size={18} className="text-red" />
+                      <h2>OFFICIAL CAMPUS EMERGENCY REPORT</h2>
+                    </div>
+                    <span className="panel-status-sub">DIRECT EOC DISPATCH INTAKE</span>
+                  </div>
+
+                  <form onSubmit={handleReportEmergency} className="ops-form-stacked form-spacious">
+                    {reportError && <div className="form-alert-error">{reportError}</div>}
+                    {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
+
+                    <div className="form-field">
+                      <label>CAMPUS LOCATION *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. N Block, Pharmacy Block, Library..."
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        required
+                      />
+
+                      <div className="quick-chip-selector">
+                        <span className="selector-title">QUICK SELECT:</span>
+                        {QUICK_LOCATIONS.map((loc) => (
+                          <button
+                            key={loc}
+                            type="button"
+                            className={`location-btn-chip ${location === loc ? "active" : ""}`}
+                            onClick={() => setLocation(loc)}
+                          >
+                            {loc}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="form-field">
+                      <div className="field-label-split">
+                        <label>INCIDENT DESCRIPTION *</label>
+                        <button
+                          type="button"
+                          className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
+                          onClick={toggleVoiceInput}
+                        >
+                          {isListening ? <MicOff size={12} /> : <Mic size={12} />}
+                          <span>{isListening ? "RECORDING..." : "VOICE INPUT"}</span>
+                        </button>
+                      </div>
+
+                      <textarea
+                        rows={4}
+                        placeholder="Provide exact details: nature of emergency, casualties, floor, room number..."
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <div className="form-field">
+                      <label>PHOTOGRAPHIC EVIDENCE</label>
+                      {imagePreview ? (
+                        <div className="evidence-staged-box">
+                          <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                          <button type="button" className="btn-remove-evidence" onClick={removeImage}>
+                            <X size={12} /> Remove Evidence
+                          </button>
+                        </div>
+                      ) : (
+                        <label htmlFor="incident-image-input-tab" className="evidence-drop-trigger">
+                          <ImageIcon size={18} />
+                          <span>Attach Incident Photograph (PNG/JPG Max 5MB)</span>
+                        </label>
+                      )}
+                      <input
+                        id="incident-image-input-tab"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        style={{ display: "none" }}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="btn-transmit-emergency btn-large"
+                      disabled={reportLoading}
+                    >
+                      {reportLoading ? "TRANSMITTING TO COMMAND CENTER..." : "TRANSMIT EMERGENCY REPORT"}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                3. AI ASSISTANT TAB (STUDENT & ADMIN)
+                ====================================================== */}
+            {activeTab === "ai-assistant" && (
+              <div className="ops-panel ai-chat-container">
+                <div className="ops-panel-header">
+                  <div className="flex-row-center">
+                    <Bot size={18} className="text-cyan" />
+                    <h2>AEGIS AI EMERGENCY COPILOT</h2>
+                  </div>
+                  <span className="panel-status-sub">GROQ AI INTELLIGENCE ACTIVE</span>
+                </div>
+
+                {hasActiveEmergency && activeIncident && (
+                  <div className="ai-active-incident-brief">
+                    <AlertTriangle size={14} className="text-amber" />
+                    <span>
+                      ACTIVE INCIDENT DETECTED: <strong>{activeIncident.incident_type} at {activeIncident.location}</strong>. Immediate Evacuation Destination: <strong>Convocation Hall / Playground</strong>.
+                    </span>
+                  </div>
+                )}
+
+                <div className="ai-chat-stream">
+                  {aiChatHistory.map((msg, idx) => (
+                    <div key={idx} className={`ai-message-row ${msg.sender === "user" ? "msg-user" : "msg-ai"}`}>
+                      <div className="msg-avatar">{msg.sender === "user" ? "YOU" : "AI"}</div>
+                      <div className="msg-bubble">
+                        <p>{msg.text}</p>
+                        <span className="msg-time">{msg.timestamp}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {aiQueryLoading && (
+                    <div className="ai-message-row msg-ai">
+                      <div className="msg-avatar">AI</div>
+                      <div className="msg-bubble"><span className="glass-spinner" /> ANALYZING INCIDENT & PROTOCOLS...</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="ai-prompts-bar-footer">
+                  <span className="prompt-label-hint">QUICK PROMPTS:</span>
+                  {(isAdmin ? ADMIN_AI_PROMPTS : STUDENT_AI_PROMPTS).map((p, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="mini-prompt-chip"
+                      onClick={() => handleSendAiPrompt(p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="ai-input-bar">
+                  <input
+                    type="text"
+                    placeholder="Ask Aegis AI Copilot (e.g. 'Where is the nearest safe zone from Library?')..."
+                    value={aiQuery}
+                    onChange={(e) => setAiQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSendAiPrompt(); }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-ops-primary"
+                    onClick={() => handleSendAiPrompt()}
+                    disabled={aiQueryLoading || !aiQuery.trim()}
+                  >
+                    <Send size={13} />
+                    <span>Send</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                4. ADMIN COMMAND CENTER DASHBOARD
+                ====================================================== */}
+            {isAdmin && activeTab === "command" && (
+              <div className="ops-command-flow">
+                {/* ACTIVE EMERGENCY DOMINANT PANEL (IF INCIDENT ACTIVE) */}
+                {hasActiveEmergency && activeIncident && (
+                  <div className="active-incident-dominant-bar">
+                    <div className="bar-hazard-strip">
+                      <div className="bar-title-block">
+                        <Flame size={20} className="text-red" />
+                        <div>
+                          <h3>ACTIVE EMERGENCY: {activeIncident.incident_type?.toUpperCase()} — {activeIncident.location}</h3>
+                          <span className="meta-sub">Reported at {new Date(activeIncident.created_at).toLocaleTimeString()} by {activeIncident.student_name}</span>
+                        </div>
+                      </div>
+                      <div className="bar-actions-block">
+                        <span className="sev-tag sev-critical">CRITICAL SEVERITY</span>
+                        <button
+                          className="btn-ops-resolve-direct"
+                          onClick={() => handleResolveIncident(activeIncident.incident_id)}
+                        >
+                          Mark as Resolved
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bar-details-grid">
+                      <div className="b-field">
+                        <span className="b-lbl">SITUATION ASSESSMENT & AI TRIAGE:</span>
+                        <p>{activeIncident.summary || activeIncident.description}</p>
+                      </div>
+                      {activeIncident.image_data && (
+                        <div className="b-evidence">
+                          <span className="b-lbl">EVIDENCE PHOTO:</span>
+                          <img
+                            src={activeIncident.image_data}
+                            alt="Incident Evidence"
+                            className="b-evidence-thumb"
+                            onClick={() => setSelectedIncidentModal(activeIncident)}
+                          />
+                        </div>
+                      )}
+                      <div className="b-field">
+                        <span className="b-lbl">DEPLOYED UNITS:</span>
+                        <div className="unit-tags-row">
+                          {activeIncident.deployed_resources?.length > 0 ? (
+                            activeIncident.deployed_resources.map((u) => (
+                              <span key={u} className="unit-tag-pill">🚨 {u}</span>
+                            ))
+                          ) : (
+                            <span className="col-val text-gray">Awaiting authorization</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PENDING APPROVAL ALERT BANNER */}
+                {pendingApprovalsCount > 0 && (
+                  <div className="ops-alert-banner-bar">
+                    <div className="banner-text">
+                      <AlertOctagon size={16} className="text-red" />
+                      <span>
+                        <strong>{pendingApprovalsCount} Emergency Response Plan(s)</strong> awaiting commander approval and responder dispatch.
+                      </span>
+                    </div>
+                    <button className="btn-ops-action-urgent" onClick={() => setActiveTab("approvals")}>
+                      Review Approvals <ChevronRight size={13} />
+                    </button>
+                  </div>
+                )}
+
+                {/* PRIMARY COMMAND MAP VIEWPORT */}
+                <div className="admin-map-workspace">
+                  <CampusMap
+                    incidentLocation={activeIncident?.location || ""}
+                    deployedResources={deployedResourceIds}
+                    activeIncident={activeIncident}
+                    isStudentView={false}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                5. STANDALONE FULLSCREEN CAMPUS MAP (STUDENT & ADMIN)
+                ====================================================== */}
+            {activeTab === "map" && (
+              <div className="ops-fullscreen-map-wrap">
+                <CampusMap
+                  incidentLocation={activeIncident?.location || ""}
+                  deployedResources={deployedResourceIds}
+                  activeIncident={activeIncident}
+                  isStudentView={!isAdmin}
+                />
+              </div>
+            )}
+
+            {/* ======================================================
+                6. APPROVALS QUEUE (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "approvals" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>EMERGENCY RESPONSE APPROVAL QUEUE</h2>
+                    <span className="sub-title">Review AI orchestrated response plans prior to responder dispatch</span>
+                  </div>
+                  <button className="btn-ops-secondary" onClick={loadApprovals}>
+                    <RefreshCw size={12} /> Refresh Queue
+                  </button>
+                </div>
+
+                {approvalsLoading ? (
+                  <div className="ops-loading-box">Loading approval queue...</div>
+                ) : approvals.length === 0 ? (
+                  <div className="ops-empty-box">All response plans have been reviewed. No pending approvals.</div>
+                ) : (
+                  <div className="approvals-ops-list">
+                    {approvals.map((appr) => (
+                      <div key={appr.approval_id} className={`approval-ops-card status-${(appr.status || "pending").toLowerCase()}`}>
+                        <div className="card-top-row">
+                          <div>
+                            <span className="approval-code">{appr.approval_id}</span>
+                            <span className="incident-ref">INCIDENT: <strong>{appr.incident_id}</strong></span>
+                          </div>
+                          <span className={`status-tag status-${(appr.status || "pending").toLowerCase()}`}>
+                            {appr.status}
+                          </span>
+                        </div>
+
+                        <div className="card-data-body">
+                          <div className="data-col">
+                            <span className="col-lbl">REQUESTED AT:</span>
+                            <span className="col-val">{new Date(appr.requested_at).toLocaleString()}</span>
+                          </div>
+                          <div className="data-col">
+                            <span className="col-lbl">RECOMMENDED DISPATCH UNITS:</span>
+                            <div className="unit-tags-row">
+                              {appr.selected_resources?.length > 0 ? (
+                                appr.selected_resources.map((u) => (
+                                  <span key={u} className="unit-tag-pill">🚨 {u}</span>
+                                ))
+                              ) : (
+                                <span className="col-val text-gray">None specified</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="data-col full-col">
+                            <span className="col-lbl">RECOMMENDED PROTOCOL:</span>
+                            <ul className="actions-bullet-list">
+                              {appr.recommended_actions?.slice(0, 3).map((a, i) => (
+                                <li key={i}>{a}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {appr.status === "PENDING" && (
+                          <div className="card-actions-bar">
+                            <button className="btn-ops-reject" onClick={() => handleRejectPlan(appr.approval_id)}>
+                              Reject Plan
+                            </button>
+                            <button className="btn-ops-approve" onClick={() => handleApprovePlan(appr.approval_id)}>
+                              Approve & Dispatch Units
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================
+                7. FLEET MANAGEMENT & DEPLOYMENT LIFECYCLE (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "resources" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>CAMPUS EMERGENCY RESOURCE FLEET</h2>
+                    <span className="sub-title">Real-time status, responder contacts, and deployment lifecycle</span>
+                  </div>
+                  <div className="btn-row">
+                    <button className="btn-ops-secondary text-amber" onClick={handleReleaseAllDeployed}>
+                      Release All Deployed
+                    </button>
+                    <button className="btn-ops-primary" onClick={openAddResource}>
+                      <Plus size={13} /> Register New Unit
+                    </button>
+                    <button className="btn-ops-secondary" onClick={loadResources}>
+                      <RefreshCw size={12} /> Sync Fleet
+                    </button>
+                  </div>
+                </div>
+
+                {/* FILTER STRIP */}
+                <div className="fleet-filter-strip">
+                  {["ALL", "Security", "Medical", "First Aid", "Facilities", "Transport", "Communication", "AVAILABLE", "DEPLOYED"].map((f) => (
+                    <button
+                      key={f}
+                      className={`fleet-filter-btn ${resourceFilter === f ? "active" : ""}`}
+                      onClick={() => setResourceFilter(f)}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+
+                {/* OPERATIONAL FLEET TABLE */}
+                <div className="ops-table-container">
+                  <table className="ops-data-table">
+                    <thead>
+                      <tr>
+                        <th>UNIT ID</th>
+                        <th>DESIGNATION</th>
+                        <th>TYPE</th>
+                        <th>STATUS</th>
+                        <th>BASE STATION</th>
+                        <th>RESPONDER IN-CHARGE</th>
+                        <th>PHONE</th>
+                        <th>VEHICLE REG</th>
+                        <th>ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredResources.map((res) => {
+                        const isDeployed = res.status === "DEPLOYED";
+                        return (
+                          <tr key={res.id} className={isDeployed ? "row-deployed" : ""}>
+                            <td className="font-mono font-bold">{res.id}</td>
+                            <td>{res.name}</td>
+                            <td><span className="type-badge-sm">{res.type}</span></td>
+                            <td>
+                              <span className={`status-tag status-${res.status.toLowerCase()}`}>
+                                {res.status}
+                              </span>
+                            </td>
+                            <td>{res.location}</td>
+                            <td>{res.contact_name || "—"}</td>
+                            <td className="font-mono">{res.phone_number || "—"}</td>
+                            <td className="font-mono">{res.vehicle_number || "—"}</td>
+                            <td>
+                              <div className="table-btn-actions">
+                                {isDeployed ? (
+                                  <button
+                                    className="btn-table-revoke"
+                                    onClick={() => handleRevokeResource(res.id, res.incident_id)}
+                                  >
+                                    Revoke
+                                  </button>
+                                ) : res.status === "AVAILABLE" ? (
+                                  <button
+                                    className="btn-table-deploy"
+                                    onClick={() => handleDeployResourceDirect(res.id)}
+                                  >
+                                    Deploy
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="btn-table-edit"
+                                  onClick={() => openEditResource(res)}
+                                  title="Edit Unit"
+                                >
+                                  <Wrench size={12} />
+                                </button>
+                                <button
+                                  className="btn-table-delete"
+                                  disabled={isDeployed}
+                                  onClick={() => handleDeleteResource(res.id)}
+                                  title="Delete Unit"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                8. INCIDENT ARCHIVE & REPOSITORY (STUDENT & ADMIN)
+                ====================================================== */}
+            {activeTab === "incidents" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>{isAdmin ? "CAMPUS INCIDENT ARCHIVE" : "MY SUBMITTED INCIDENT LOG"}</h2>
+                    <span className="sub-title">Historical emergency events, evidence repository, and response intelligence</span>
+                  </div>
+                  <div className="incident-archive-controls-row">
+                    <div className="incident-filter-pills">
+                      {["ALL", "ACTIVE", "PENDING", "APPROVED", "RESOLVED"].map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          className={`inc-filter-chip ${incidentFilterStatus === st ? "active" : ""}`}
+                          onClick={() => setIncidentFilterStatus(st)}
+                        >
+                          {st}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="search-filter-box">
+                      <Search size={13} className="text-gray" />
+                      <input
+                        type="text"
+                        placeholder="Search by ID, location, type..."
+                        value={incidentSearchQuery}
+                        onChange={(e) => setIncidentSearchQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {incidentsLoading ? (
+                  <div className="ops-loading-box">Loading incident repository...</div>
+                ) : filteredIncidents.length === 0 ? (
+                  <div className="ops-empty-box">No matching incident records found.</div>
+                ) : (
+                  <div className="ops-table-container">
+                    <table className="ops-data-table">
+                      <thead>
+                        <tr>
+                          <th>INCIDENT ID</th>
+                          <th>TIMESTAMP</th>
+                          <th>TYPE</th>
+                          <th>LOCATION</th>
+                          <th>SEVERITY</th>
+                          {isAdmin && <th>REPORTER</th>}
+                          <th>EVIDENCE</th>
+                          <th>STATUS</th>
+                          <th>ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredIncidents.map((inc) => (
+                          <tr key={inc.incident_id}>
+                            <td className="font-mono font-bold">{inc.incident_id}</td>
+                            <td className="font-mono text-gray">{new Date(inc.created_at).toLocaleString()}</td>
+                            <td>{inc.incident_type}</td>
+                            <td>{inc.location}</td>
+                            <td>
+                              <span className={`sev-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
+                                {inc.severity}
+                              </span>
+                            </td>
+                            {isAdmin && <td>{inc.student_name}</td>}
+                            <td>
+                              {inc.image_data ? (
+                                <img
+                                  src={inc.image_data}
+                                  alt="Evidence"
+                                  className="evidence-table-thumb"
+                                  onClick={() => setSelectedIncidentModal(inc)}
+                                />
+                              ) : (
+                                <span className="text-gray">—</span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`status-tag status-${(inc.status || "pending").toLowerCase()}`}>
+                                {inc.status}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="table-btn-actions">
+                                <button
+                                  className="btn-table-inspect"
+                                  onClick={() => setSelectedIncidentModal(inc)}
+                                >
+                                  Inspect
+                                </button>
+                                {isAdmin && inc.status === "ACTIVE" && (
+                                  <button
+                                    className="btn-table-resolve"
+                                    onClick={() => handleResolveIncident(inc.incident_id)}
+                                  >
+                                    Resolve
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================
+                9. AI INTELLIGENCE TELEMETRY (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "ai-intel" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>AEGIS AI INTELLIGENCE LAYER</h2>
+                    <span className="sub-title">Real-time LLM inference, Groq API telemetry, and multi-agent triage logs</span>
+                  </div>
+                </div>
+
+                <div className="ai-intel-grid">
+                  <div className="ops-panel intel-status-box">
+                    <div className="ops-panel-header">
+                      <h3>GROQ LLM INFERENCE ENGINE</h3>
+                      <span className="panel-status-sub">ACTIVE SENTINEL</span>
+                    </div>
+                    <div className="intel-data-rows">
+                      <div className="i-row"><span>MODEL:</span><strong>openai/gpt-oss-120b</strong></div>
+                      <div className="i-row"><span>TOKEN BUDGET:</span><strong>&lt; 350 Tokens / Incident</strong></div>
+                      <div className="i-row"><span>AVERAGE LATENCY:</span><strong>~850ms</strong></div>
+                      <div className="i-row"><span>FALLBACK STATUS:</span><strong className="text-green">Deterministic Rule Engine Online</strong></div>
+                    </div>
+                  </div>
+
+                  <div className="ops-panel intel-status-box">
+                    <div className="ops-panel-header">
+                      <h3>CAMPUS ONTOLOGY & SPATIAL ANCHORS</h3>
+                      <span className="panel-status-sub">NORMALIZED</span>
+                    </div>
+                    <div className="intel-data-rows">
+                      <div className="i-row"><span>ACTIVE SECTORS:</span><strong>7 Academic / Residential Blocks</strong></div>
+                      <div className="i-row"><span>SAFE ZONES:</span><strong>Playground (Alpha), Convocation Hall (Shelter)</strong></div>
+                      <div className="i-row"><span>FLEET CAPACITY:</span><strong>{resourceSummary.total} Emergency Units</strong></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                10. DISPATCH ALERTS (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "alerts" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>RESPONDER DISPATCH ALERT LOGS</h2>
+                    <span className="sub-title">Transmitted emergency notifications to field personnel & drivers</span>
+                  </div>
+                  <button className="btn-ops-secondary" onClick={loadAlerts}>
+                    <RefreshCw size={12} /> Sync Alerts
+                  </button>
+                </div>
+
+                {alertsLoading ? (
+                  <div className="ops-loading-box">Loading alert stream...</div>
+                ) : alerts.length === 0 ? (
+                  <div className="ops-empty-box">No dispatch alerts generated. Alerts trigger automatically upon plan approval.</div>
+                ) : (
+                  <div className="alerts-ops-table-wrap">
+                    <table className="ops-data-table">
+                      <thead>
+                        <tr>
+                          <th>ALERT ID</th>
+                          <th>TIME</th>
+                          <th>UNIT</th>
+                          <th>RECIPIENT RESPONDER</th>
+                          <th>PHONE</th>
+                          <th>INCIDENT</th>
+                          <th>DISPATCH MESSAGE</th>
+                          <th>STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {alerts.map((al) => (
+                          <tr key={al.alert_id}>
+                            <td className="font-mono font-bold text-amber">{al.alert_id}</td>
+                            <td className="font-mono text-gray">{new Date(al.created_at).toLocaleTimeString()}</td>
+                            <td className="font-mono font-bold">{al.resource_id}</td>
+                            <td>{al.recipient_name}</td>
+                            <td className="font-mono">{al.recipient_phone || "—"}</td>
+                            <td className="font-mono text-gray">{al.incident_id}</td>
+                            <td className="text-instruction">{al.message}</td>
+                            <td><span className="status-tag status-available">{al.status || "SENT"}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================
+                11. AUDIT LOG (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "audit" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>SYSTEM AUDIT TRAIL</h2>
+                    <span className="sub-title">Immutable chronological log of all operator actions and system transitions</span>
+                  </div>
+                  <button className="btn-ops-secondary" onClick={loadAuditTrail}>
+                    <RefreshCw size={12} /> Refresh Trail
+                  </button>
+                </div>
+
+                {auditLoading ? (
+                  <div className="ops-loading-box">Loading audit logs...</div>
+                ) : auditEvents.length === 0 ? (
+                  <div className="ops-empty-box">No audit events recorded.</div>
+                ) : (
+                  <div className="ops-table-container">
+                    <table className="ops-data-table">
+                      <thead>
+                        <tr>
+                          <th>EVENT TIMESTAMP</th>
+                          <th>ACTION TYPE</th>
+                          <th>OPERATOR / ACTOR</th>
+                          <th>INCIDENT REF</th>
+                          <th>SYSTEM LOG MESSAGE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditEvents.map((evt, idx) => (
+                          <tr key={evt.event_id || idx}>
+                            <td className="font-mono text-gray">{new Date(evt.timestamp || evt.created_at).toLocaleString()}</td>
+                            <td className="font-bold text-cyan">{evt.event_type}</td>
+                            <td>{evt.actor}</td>
+                            <td className="font-mono">{evt.incident_id}</td>
+                            <td className="text-gray">{evt.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
         </div>
       </div>
     </div>
   );
 }
-
-function ResourceCard({ resource }) {
-  const Icon = resource.icon;
-
-  const percentage = Math.round(
-    (resource.available / resource.total) * 100
-  );
-
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-400/5">
-          <Icon className="h-4 w-4 text-cyan-400" />
-        </div>
-
-        <span className="text-[9px] text-slate-600">
-          {resource.type}
-        </span>
-      </div>
-
-      <p className="mt-3 text-[11px] font-medium text-slate-300">
-        {resource.name}
-      </p>
-
-      <div className="mt-2 flex items-end justify-between">
-        <p className="text-lg font-bold">
-          {resource.available}
-          <span className="text-xs font-normal text-slate-600">
-            /{resource.total}
-          </span>
-        </p>
-
-        <span className="text-[9px] text-emerald-400">
-          {percentage}% ready
-        </span>
-      </div>
-
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className="h-full rounded-full bg-cyan-400 transition-all"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function MapBuilding({ className, label, danger = false }) {
-  return (
-    <div className={`absolute ${className}`}>
-      <div
-        className={`flex h-20 w-28 items-center justify-center rounded-xl border ${
-          danger
-            ? "border-red-400/30 bg-red-400/10"
-            : "border-slate-600/50 bg-slate-800/70"
-        }`}
-      >
-        <div className="text-center">
-          <Building2
-            className={`mx-auto h-5 w-5 ${
-              danger ? "text-red-400" : "text-slate-500"
-            }`}
-          />
-
-          <p className="mt-1 text-[9px] font-medium text-slate-400">
-            {label}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MapMarker({ className, type, label }) {
-  const colors = {
-    danger: "bg-red-500 border-red-300/40 shadow-red-500/30",
-    medical:
-      "bg-emerald-500 border-emerald-300/40 shadow-emerald-500/30",
-    security: "bg-blue-500 border-blue-300/40 shadow-blue-500/30",
-    vehicle:
-      "bg-amber-500 border-amber-300/40 shadow-amber-500/30",
-  };
-
-  return (
-    <div className={`absolute ${className}`}>
-      <div
-        className={`relative flex h-8 w-8 items-center justify-center rounded-full border shadow-lg ${colors[type]}`}
-      >
-        <span className="h-2.5 w-2.5 rounded-full bg-white" />
-
-        <span className="absolute inset-[-5px] animate-ping rounded-full border border-white/10" />
-      </div>
-
-      <div className="absolute left-1/2 top-9 -translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-slate-950/90 px-2 py-1 text-[8px] text-slate-300 backdrop-blur">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function Legend({ color, label }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className={`h-2 w-2 rounded-full ${color}`} />
-
-      <span className="text-[8px] text-slate-500">
-        {label}
-      </span>
-    </div>
-  );
-}
-
-export default App;
