@@ -1,1 +1,0 @@
-# AegisCampus AI application package.

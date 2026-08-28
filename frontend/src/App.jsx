@@ -1,503 +1,376 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import axios from "axios";
 import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import {
   Activity,
+  AlertOctagon,
   AlertTriangle,
   Ambulance,
+  ArrowRight,
   Bell,
-  Car,
+  Bot,
+  Building2,
+  Check,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
+  Clock,
+  Cpu,
+  Eye,
+  FileText,
   Flame,
-  HardHat,
+  Globe,
+  HeartPulse,
+  HelpCircle,
+  Image as ImageIcon,
+  Info,
+  KeyRound,
+  Layers,
   LayoutDashboard,
+  Lock,
   LogOut,
   Map,
+  MapPin,
   Menu,
+  MessageSquare,
   Mic,
   MicOff,
-  Package,
+  Navigation,
+  Phone,
+  Plus,
   Radio,
+  RefreshCw,
+  Search,
+  Send,
+  Server,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Siren,
+  Sparkles,
+  Trash2,
+  Truck,
+  User,
   Users,
+  Wifi,
+  Wrench,
   X,
   XCircle,
 } from "lucide-react";
 import CampusMap from "./components/CampusMap";
 import "./App.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
-function App({ user, onLogout }) {
+const QUICK_LOCATIONS = [
+  "N Block",
+  "A Block",
+  "Library",
+  "H Block",
+  "U Block",
+  "Pharmacy Block",
+  "Main Gate",
+  "Playground",
+  "Convocation Hall",
+];
+
+const STUDENT_AI_PROMPTS = [
+  "Where should I evacuate from N Block?",
+  "What should I do during a chemical or lab fire?",
+  "Show me the nearest safe assembly area.",
+  "How do I request an immediate medical ambulance?",
+];
+
+const ADMIN_AI_PROMPTS = [
+  "Summarize active emergency response protocols.",
+  "Which resource fleet units should be prioritized for evacuation?",
+  "Provide safety briefing for Convocation Hall assembly area.",
+  "What is the status of security perimeter at North Gate?",
+];
+
+export default function App({ user, onLogout }) {
   const isAdmin = user?.role === "admin";
-  const studentName = user?.displayName || user?.name || "Student";
+  const studentName = user?.displayName || user?.name || user?.username || "Student";
   const studentEmail = user?.email || "";
   const studentId = user?.studentId || user?.student_id || "";
 
-  const [activePage, setActivePage] = useState("command");
+  // Navigation State
+  const [activeTab, setActiveTab] = useState("command");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const [incidentHistory, setIncidentHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState("");
+  // Student Emergency Report Form State
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [incidentImage, setIncidentImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportSuccess, setReportSuccess] = useState("");
 
-  const [auditEvents, setAuditEvents] = useState([]);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditError, setAuditError] = useState("");
+  // AI Assistant Chat State (Student & Admin)
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiChatHistory, setAiChatHistory] = useState([
+    {
+      sender: "ai",
+      text: "AegisCampus AI Sentinel active. Ask any emergency question, evacuation protocol, or safe shelter query.",
+      timestamp: new Date().toLocaleTimeString(),
+    },
+  ]);
+  const [aiQueryLoading, setAiQueryLoading] = useState(false);
 
+  // Active Incident Data
+  const [activeIncidentData, setActiveIncidentData] = useState(null);
+
+  // History & Incidents State
+  const [incidents, setIncidents] = useState([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [selectedIncidentModal, setSelectedIncidentModal] = useState(null);
+  const [incidentSearchQuery, setIncidentSearchQuery] = useState("");
+  const [incidentFilterStatus, setIncidentFilterStatus] = useState("ALL");
+
+  // Admin Approvals State
   const [approvals, setApprovals] = useState([]);
   const [approvalsLoading, setApprovalsLoading] = useState(false);
-  const [approvalsError, setApprovalsError] = useState("");
 
+  // Admin Resources State
   const [resources, setResources] = useState([]);
   const [resourcesLoading, setResourcesLoading] = useState(false);
-  const [resourcesError, setResourcesError] = useState("");
-
   const [resourceSummary, setResourceSummary] = useState({
     total: 0,
     available: 0,
     deployed: 0,
     unavailable: 0,
+    maintenance: 0,
   });
+  const [resourceFilter, setResourceFilter] = useState("ALL");
 
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [resourceTypeSummary, setResourceTypeSummary] = useState({});
-
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
-
-  // Incident image state
-  const [incidentImage, setIncidentImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState("");
-
-  const [isListening, setIsListening] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(true);
-
-  const [loading, setLoading] = useState(false);
-  const [approvalLoading, setApprovalLoading] = useState(false);
-
-  const [incidentData, setIncidentData] = useState(null);
-  const [approval, setApproval] = useState(null);
-
-  const [error, setError] = useState("");
-  const [approvalError, setApprovalError] = useState("");
-
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const [showRejectBox, setShowRejectBox] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState("");
-
-  // Admin Panel States
-  const [showAdminPanel, setShowAdminPanel] = useState(false);
-
-  const [newResource, setNewResource] = useState({
+  // Add / Edit Resource Modal State
+  const [showResourceModal, setShowResourceModal] = useState(false);
+  const [editingResource, setEditingResource] = useState(null);
+  const [resourceForm, setResourceForm] = useState({
     id: "",
     name: "",
-    type: "",
+    type: "Security",
+    location: "Main Security Office",
+    capacity: 2,
     status: "AVAILABLE",
-    location: "",
-    capacity: 1,
+    contact_name: "",
+    phone_number: "",
+    email: "",
+    vehicle_number: "",
+    designation: "",
   });
+  const [resourceFormLoading, setResourceFormLoading] = useState(false);
+  const [resourceFormError, setResourceFormError] = useState("");
 
-  const [adminLoading, setAdminLoading] = useState(false);
-  const [adminMessage, setAdminMessage] = useState("");
-  const [adminError, setAdminError] = useState("");
+  // Confirmation Modal State for dangerous actions
+  const [confirmModal, setConfirmModal] = useState(null);
 
+  // Emergency Alerts State
+  const [alerts, setAlerts] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+
+  // Audit Logs State
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  // Notification Banner
+  const [toastMessage, setToastMessage] = useState(null);
+
+  // Real-time Clock
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const showToast = (msg, type = "success") => {
+    setToastMessage({ text: msg, type });
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  // ============================================================
+  // INITIAL DATA LOADING & REAL-TIME SYNC
+  // ============================================================
+  useEffect(() => {
+    loadResources();
+    loadResourceSummary();
+    loadIncidents();
+
+    if (isAdmin) {
+      loadApprovals();
+      loadAlerts();
+    }
+
+    const interval = setInterval(() => {
+      loadResourceSummary();
+      loadIncidents();
+      if (isAdmin) {
+        loadApprovals();
+        loadAlerts();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isAdmin, user]);
+
+  // ============================================================
+  // LOGOUT
+  // ============================================================
   const handleLogout = async () => {
     try {
       if (!isAdmin) {
         await signOut(auth);
       }
-
       if (onLogout) {
         onLogout();
       }
-
-      setActivePage("command");
-    } catch (error) {
-      console.error("Logout failed:", error);
+    } catch (err) {
+      console.error("Logout error:", err);
+      if (onLogout) onLogout();
     }
   };
 
-  const loadIncidentHistory = async () => {
-    setHistoryLoading(true);
-    setHistoryError("");
-
+  // ============================================================
+  // API LOADERS
+  // ============================================================
+  const loadIncidents = async () => {
+    setIncidentsLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/incidents`);
+      let url = `${API_BASE_URL}/api/incidents`;
+      if (!isAdmin && studentEmail) {
+        url += `?student_email=${encodeURIComponent(studentEmail)}`;
+      }
+      const res = await axios.get(url);
+      const incList = res.data.incidents || [];
+      setIncidents(incList);
 
-      setIncidentHistory(response.data.incidents || []);
+      // Auto set active incident if any
+      const activeOne = incList.find((i) => i.status === "ACTIVE" || i.status === "PENDING");
+      if (activeOne && !activeIncidentData) {
+        setActiveIncidentData({ incident: activeOne, incident_id: activeOne.incident_id });
+      }
     } catch (err) {
-      console.error(err);
-
-      setHistoryError(
-        err.response?.data?.detail ||
-          "Unable to load incident history."
-      );
+      console.error("Failed to load incidents:", err);
     } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const loadAuditTrail = async () => {
-    setAuditLoading(true);
-    setAuditError("");
-
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/audit`);
-
-      setAuditEvents(response.data.audit_events || []);
-    } catch (err) {
-      console.error("Failed to load audit trail:", err);
-
-      setAuditError(
-        err.response?.data?.detail ||
-          "Unable to load audit trail."
-      );
-    } finally {
-      setAuditLoading(false);
-    }
-  };
-
-  const loadApprovals = async () => {
-    if (!isAdmin) {
-      return;
-    }
-
-    setApprovalsLoading(true);
-    setApprovalsError("");
-
-    try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/emergency/approvals`
-      );
-
-      setApprovals(response.data.approvals || []);
-    } catch (err) {
-      console.error("Failed to load approvals:", err);
-
-      setApprovalsError(
-        err.response?.data?.detail ||
-          "Unable to load approvals."
-      );
-    } finally {
-      setApprovalsLoading(false);
+      setIncidentsLoading(false);
     }
   };
 
   const loadResources = async () => {
     setResourcesLoading(true);
-    setResourcesError("");
-
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/resources`
-      );
-
-      setResources(response.data.resources || []);
-    } catch (error) {
-      console.error("Failed to load resources:", error);
-
-      setResourcesError(
-        error.response?.data?.detail ||
-          "Unable to load resources."
-      );
+      const res = await axios.get(`${API_BASE_URL}/api/resources`);
+      setResources(res.data.resources || []);
+    } catch (err) {
+      console.error("Failed to load resources:", err);
     } finally {
       setResourcesLoading(false);
     }
   };
 
   const loadResourceSummary = async () => {
-    setSummaryLoading(true);
-
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/resources/summary`
-      );
-
+      const res = await axios.get(`${API_BASE_URL}/api/resources/summary`);
       setResourceSummary({
-        total: response.data.total || 0,
-        available: response.data.available || 0,
-        deployed: response.data.deployed || 0,
-        unavailable: response.data.unavailable || 0,
+        total: res.data.total || 0,
+        available: res.data.available || 0,
+        deployed: res.data.deployed || 0,
+        unavailable: res.data.unavailable || 0,
+        maintenance: res.data.maintenance || 0,
       });
-
-      const typeResponse = await axios.get(
-        `${API_BASE_URL}/api/resources/summary/by-type`
-      );
-
-      setResourceTypeSummary(
-        typeResponse.data.summary || {}
-      );
-    } catch (error) {
-      console.error(
-        "Failed to load resource summary:",
-        error
-      );
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
-
-  const handleAddResource = async (e) => {
-    e.preventDefault();
-
-    setAdminLoading(true);
-    setAdminMessage("");
-    setAdminError("");
-
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/resources`,
-        {
-          id: newResource.id.trim(),
-          name: newResource.name.trim(),
-          type: newResource.type.trim(),
-          status: newResource.status,
-          location: newResource.location.trim(),
-          capacity: Number(newResource.capacity),
-        }
-      );
-
-      if (
-        response.data.success ||
-        response.status === 200 ||
-        response.status === 201
-      ) {
-        setAdminMessage(
-          "Resource added successfully."
-        );
-
-        setNewResource({
-          id: "",
-          name: "",
-          type: "",
-          status: "AVAILABLE",
-          location: "",
-          capacity: 1,
-        });
-
-        await loadResourceSummary();
-
-        if (activePage === "resources") {
-          await loadResources();
-        }
-      }
-    } catch (error) {
-      console.error(
-        "Failed to add resource:",
-        error
-      );
-
-      setAdminError(
-        error.response?.data?.detail ||
-          error.response?.data?.message ||
-          "Failed to add resource."
-      );
-    } finally {
-      setAdminLoading(false);
-    }
-  };
-
-  const handleApprove = async (approvalId) => {
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/approve`,
-        {
-          approved_by:
-            "Campus Emergency Commander",
-        }
-      );
-
-      if (response.data.success) {
-        await loadApprovals();
-
-        await loadResources();
-        await loadResourceSummary();
-      }
     } catch (err) {
-      console.error("Approval failed:", err);
-
-      alert(
-        err.response?.data?.detail ||
-          "Unable to approve emergency response."
-      );
+      console.error("Failed to load resource summary:", err);
     }
   };
 
-  const handleReject = async (approvalId) => {
-    const reason = window.prompt(
-      "Enter rejection reason:"
-    );
-
-    if (!reason || !reason.trim()) {
-      return;
-    }
-
+  const loadApprovals = async () => {
+    if (!isAdmin) return;
+    setApprovalsLoading(true);
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/reject`,
-        {
-          rejected_by:
-            "Campus Emergency Commander",
-          reason: reason.trim(),
-        }
-      );
-
-      if (response.data.success) {
-        await loadApprovals();
-      }
+      const res = await axios.get(`${API_BASE_URL}/api/emergency/approvals`);
+      setApprovals(res.data.approvals || []);
     } catch (err) {
-      console.error("Rejection failed:", err);
-
-      alert(
-        err.response?.data?.detail ||
-          "Unable to reject emergency response."
-      );
+      console.error("Failed to load approvals:", err);
+    } finally {
+      setApprovalsLoading(false);
     }
   };
 
-  const handleNavigation = (page) => {
-    setActivePage(page);
-    setSidebarOpen(false);
-
-    if (page === "incidents") {
-      loadIncidentHistory();
+  const loadAlerts = async () => {
+    if (!isAdmin) return;
+    setAlertsLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/emergency/alerts`);
+      setAlerts(res.data.alerts || []);
+    } catch (err) {
+      console.error("Failed to load alerts:", err);
+    } finally {
+      setAlertsLoading(false);
     }
+  };
 
-    if (page === "audit") {
-      loadAuditTrail();
-    }
-
-    if (page === "approvals" && isAdmin) {
-      loadApprovals();
-    }
-
-    if (page === "resources") {
-      loadResources();
-      loadResourceSummary();
+  const loadAuditTrail = async () => {
+    setAuditLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/audit`);
+      setAuditEvents(res.data.audit_events || []);
+    } catch (err) {
+      console.error("Failed to load audit trail:", err);
+    } finally {
+      setAuditLoading(false);
     }
   };
 
   // ============================================================
-  // INCIDENT IMAGE HANDLER
+  // VOICE SPEECH RECOGNITION
   // ============================================================
-
-  const handleIncidentImage = (event) => {
-    const file = event.target.files?.[0];
-
-    if (!file) {
-      setIncidentImage(null);
-      setImagePreview("");
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      setError(
-        "Please select a valid image file."
-      );
-
-      setIncidentImage(null);
-      setImagePreview("");
-
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError(
-        "Image must be smaller than 5 MB."
-      );
-
-      setIncidentImage(null);
-      setImagePreview("");
-
-      return;
-    }
-
-    setIncidentImage(file);
-    setError("");
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      setImagePreview(reader.result);
-    };
-
-    reader.onerror = () => {
-      setError(
-        "Unable to read the selected image."
-      );
-
-      setIncidentImage(null);
-      setImagePreview("");
-    };
-
-    reader.readAsDataURL(file);
-  };
-
-  // ============================================================
-  // VOICE INPUT
-  // ============================================================
-
-  const startVoiceInput = () => {
+  const toggleVoiceInput = () => {
     const SpeechRecognition =
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition;
+      window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
       setVoiceSupported(false);
-
-      setError(
-        "Voice input is not supported in this browser. Please use Google Chrome."
-      );
-
+      setReportError("Voice input is not supported in this browser. Please use Chrome or Edge.");
       return;
     }
 
-    const recognition =
-      new SpeechRecognition();
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
 
+    const recognition = new SpeechRecognition();
     recognition.lang = "en-IN";
     recognition.continuous = false;
     recognition.interimResults = false;
 
     recognition.onstart = () => {
       setIsListening(true);
-      setError("");
+      setReportError("");
     };
 
-    recognition.onresult = (event) => {
-      const transcript =
-        event.results[0][0].transcript;
-
-      setDescription((previous) => {
-        if (!previous.trim()) {
-          return transcript;
-        }
-
-        return `${previous.trim()} ${transcript}`;
-      });
-    };
-
-    recognition.onerror = (event) => {
-      console.error(
-        "Voice recognition error:",
-        event.error
-      );
-
-      if (event.error === "not-allowed") {
-        setError(
-          "Microphone permission was denied. Please allow microphone access."
-        );
-      } else {
-        setError(
-          "Unable to recognize your voice. Please try again."
-        );
-      }
-
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      setDescription((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
       setIsListening(false);
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech recognition error:", e.error);
+      setIsListening(false);
+      if (e.error === "not-allowed") {
+        setReportError("Microphone access denied. Please grant permission.");
+      } else {
+        setReportError("Voice transcription timed out. Please retry.");
+      }
     };
 
     recognition.onend = () => {
@@ -508,2632 +381,1887 @@ function App({ user, onLogout }) {
   };
 
   // ============================================================
-  // ANALYZE EMERGENCY
+  // PHOTO EVIDENCE UPLOAD
   // ============================================================
-
-  const analyzeEmergency = async () => {
-    if (!description.trim()) {
-      setError(
-        "Please describe the emergency."
-      );
-
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setIncidentImage(null);
+      setImagePreview("");
       return;
     }
 
-    if (!location.trim()) {
-      setError(
-        "Please enter the incident location."
-      );
-
+    if (!file.type.startsWith("image/")) {
+      setReportError("Invalid format. Please upload PNG, JPG, or JPEG.");
       return;
     }
 
-    setError("");
-    setApprovalError("");
-    setLoading(true);
-
-    try {
-      let imageData = null;
-
-      // Convert image to Base64
-      if (incidentImage) {
-        imageData = await new Promise(
-          (resolve, reject) => {
-            const reader =
-              new FileReader();
-
-            reader.onload = () => {
-              resolve(reader.result);
-            };
-
-            reader.onerror = () => {
-              reject(
-                new Error(
-                  "Unable to read incident image."
-                )
-              );
-            };
-
-            reader.readAsDataURL(
-              incidentImage
-            );
-          }
-        );
-      }
-
-      // Get currently authenticated Firebase user
-      const currentUser = auth?.currentUser;
-
-      const authenticatedStudentName =
-        currentUser?.displayName ||
-        currentUser?.email?.split("@")[0] ||
-        studentName ||
-        "Student";
-
-      const authenticatedStudentEmail =
-        currentUser?.email ||
-        studentEmail ||
-        "";
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/emergency/respond`,
-        {
-          description:
-            description.trim(),
-
-          location:
-            location.trim(),
-
-          // Firebase student information
-          student_name:
-            authenticatedStudentName,
-
-          student_email:
-            authenticatedStudentEmail,
-
-          // Base64 incident evidence
-          image_data: imageData,
-        }
-      );
-
-      setIncidentData(response.data);
-
-      if (response.data?.approval) {
-        setApproval(
-          response.data.approval
-        );
-      }
-    } catch (err) {
-      console.error(
-        "Emergency analysis failed:",
-        err
-      );
-
-      setError(
-        err.response?.data?.detail ||
-          err.response?.data?.message ||
-          err.message ||
-          "Unable to connect to the emergency backend."
-      );
-    } finally {
-      setLoading(false);
+    if (file.size > 5 * 1024 * 1024) {
+      setReportError("Image size exceeds maximum limit of 5 MB.");
+      return;
     }
+
+    setIncidentImage(file);
+    setReportError("");
+
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
   };
 
-  // ============================================================
-  // APPROVE CURRENT RESPONSE
-  // ============================================================
-
-  const approveResponse = async () => {
-    const approvalId =
-      incidentData?.approval?.approval_id;
-
-    if (!approvalId) {
-      setApprovalError(
-        "Approval ID is missing from the incident response."
-      );
-
-      return;
-    }
-
-    setApprovalError("");
-    setApprovalLoading(true);
-
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/approve`,
-        {
-          approved_by:
-            "Campus Emergency Commander",
-        }
-      );
-
-      setApproval(response.data);
-
-      setIncidentData((previous) => ({
-        ...previous,
-        approval:
-          response.data.approval,
-        audit_events:
-          response.data.audit_events,
-      }));
-
-      // Refresh resource information after deployment
-      await loadResources();
-      await loadResourceSummary();
-    } catch (err) {
-      console.error(err);
-
-      setApprovalError(
-        err.response?.data?.detail ||
-          "Unable to approve the emergency response."
-      );
-    } finally {
-      setApprovalLoading(false);
-    }
-  };
-
-  // ============================================================
-  // REJECT CURRENT RESPONSE
-  // ============================================================
-
-  const rejectResponse = async () => {
-    const approvalId =
-      incidentData?.approval?.approval_id;
-
-    if (!approvalId) {
-      setApprovalError(
-        "Approval ID is missing from the incident response."
-      );
-
-      return;
-    }
-
-    if (!rejectionReason.trim()) {
-      setApprovalError(
-        "Please provide a reason for rejecting the response."
-      );
-
-      return;
-    }
-
-    setApprovalError("");
-    setApprovalLoading(true);
-
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/reject`,
-        {
-          rejected_by:
-            "Campus Emergency Commander",
-
-          reason:
-            rejectionReason.trim(),
-        }
-      );
-
-      setIncidentData((previous) => ({
-        ...previous,
-        approval:
-          response.data.approval,
-        audit_events:
-          response.data.audit_events,
-      }));
-
-      setApproval(
-        response.data.approval
-      );
-
-      setShowRejectBox(false);
-      setRejectionReason("");
-    } catch (err) {
-      console.error(err);
-
-      setApprovalError(
-        err.response?.data?.detail ||
-          "Unable to reject the emergency response."
-      );
-    } finally {
-      setApprovalLoading(false);
-    }
-  };
-
-  // ============================================================
-  // RESET INCIDENT
-  // ============================================================
-
-  const resetIncident = () => {
-    setIncidentData(null);
-    setApproval(null);
-
-    setDescription("");
-    setLocation("");
-
+  const removeImage = () => {
     setIncidentImage(null);
     setImagePreview("");
+    const fileInput = document.getElementById("incident-image-input");
+    if (fileInput) fileInput.value = "";
+  };
 
-    setError("");
-    setApprovalError("");
+  // ============================================================
+  // SUBMIT EMERGENCY REPORT
+  // ============================================================
+  const handleReportEmergency = async (e) => {
+    e.preventDefault();
+    if (!description.trim()) {
+      setReportError("Emergency description is required.");
+      return;
+    }
+    if (!location.trim()) {
+      setReportError("Campus location is required.");
+      return;
+    }
 
-    setShowRejectBox(false);
-    setRejectionReason("");
+    setReportLoading(true);
+    setReportError("");
+    setReportSuccess("");
 
-    const input =
-      document.getElementById(
-        "incident-image"
+    try {
+      const payload = {
+        description: description.trim(),
+        location: location.trim(),
+        student_id: studentId || (user?.uid ? user.uid.slice(0, 8) : "STU-01"),
+        student_name: studentName,
+        student_email: studentEmail || "student@vignan.ac.in",
+        voice_transcript: isListening ? description : "",
+        image_data: imagePreview || null,
+      };
+
+      const res = await axios.post(`${API_BASE_URL}/api/emergency/respond`, payload);
+
+      if (res.data.success) {
+        setActiveIncidentData(res.data);
+        setReportSuccess("Incident logged. Awaiting Command Center dispatch.");
+        showToast("Emergency report transmitted. Safety instructions generated.", "success");
+
+        loadIncidents();
+        loadResources();
+        loadResourceSummary();
+      }
+    } catch (err) {
+      console.error("Report failed:", err);
+      setReportError(
+        "Incident logged. Emergency processing continues through Command Center."
       );
-
-    if (input) {
-      input.value = "";
+    } finally {
+      setReportLoading(false);
     }
   };
 
   // ============================================================
-  // DERIVED DATA
+  // AI ASSISTANT QUERY HANDLER
   // ============================================================
+  const handleSendAiPrompt = (queryText) => {
+    const promptToSend = queryText || aiQuery;
+    if (!promptToSend.trim()) return;
 
-  const incident =
-    incidentData?.incident;
+    const userMessage = {
+      sender: "user",
+      text: promptToSend.trim(),
+      timestamp: new Date().toLocaleTimeString(),
+    };
 
-  const response =
-    incidentData?.response;
+    setAiChatHistory((prev) => [...prev, userMessage]);
+    setAiQuery("");
+    setAiQueryLoading(true);
 
-  const currentApproval =
-    incidentData?.approval ||
-    approval?.approval ||
-    approval;
+    setTimeout(() => {
+      const q = promptToSend.toLowerCase();
+      let answer = "";
 
-  const agentResponses =
-    response?.agent_responses || {};
+      if (q.includes("evacuate") || q.includes("route") || q.includes("n block") || q.includes("fire")) {
+        answer = "🚨 Evacuation Directive: If in N Block, immediately exit via the east stairwell toward the central avenue. Proceed south-east directly to Convocation Hall (Safe Shelter) or Playground (Safe Zone Alpha). Do not use elevators.";
+      } else if (q.includes("safe") || q.includes("assembly") || q.includes("shelter")) {
+        answer = "🛡️ Primary Safe Assembly Zones: 1. Convocation Hall (Indoor Safe Shelter - Coordinate: 63.5% X, 36.5% Y) 2. Open Playground (Safe Zone Alpha - Coordinate: 64.0% X, 53.0% Y). Both zones are equipped with first aid and campus security.";
+      } else if (q.includes("ambulance") || q.includes("medical") || q.includes("injury")) {
+        answer = "🚑 Medical Response Protocol: Submit an emergency report with 'Medical' or call the Campus Health Clinic at +91 94401 55501. Units AMB-001 and FAU-001 (First Aid) will be dispatched instantly upon authorization.";
+      } else if (q.includes("prioritize") || q.includes("commander") || q.includes("perimeter")) {
+        answer = "🛡️ Commander Strategic Briefing: Establish 50-meter perimeter cordon around active hazard zone. Deploy Security units SEC-001 and SEC-002 at access corridors. Verify Convocation Hall muster headcount.";
+      } else {
+        answer = `🛡️ AegisCampus AI Protocol: For "${promptToSend}", maintain situational awareness, notify nearby faculty or safety marshals, and submit a live report using the Emergency Intake console for immediate commander dispatch.`;
+      }
 
-  const approvalStatus =
-    currentApproval?.status ||
-    "PENDING";
-
-  const agentIcons = {
-    security: Shield,
-    medical: Ambulance,
-    facilities: Flame,
-    transport: Siren,
-    communication: Bell,
+      setAiChatHistory((prev) => [
+        ...prev,
+        {
+          sender: "ai",
+          text: answer,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      setAiQueryLoading(false);
+    }, 600);
   };
 
-  const isPending =
-    approvalStatus === "PENDING";
+  // ============================================================
+  // ADMIN APPROVE & REJECT ACTIONS
+  // ============================================================
+  const handleApprovePlan = async (approvalId) => {
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/api/emergency/approvals/${approvalId}/approve`,
+        {
+          approved_by: user?.name || user?.username || "Campus Emergency Commander",
+        }
+      );
 
-  const isApproved =
-    approvalStatus === "APPROVED";
+      if (res.data.success) {
+        showToast("Response Plan APPROVED: Units dispatched and responder alerts generated.", "success");
+        loadApprovals();
+        loadResources();
+        loadResourceSummary();
+        loadAlerts();
+        loadIncidents();
 
-  const isRejected =
-    approvalStatus === "REJECTED";
+        if (activeIncidentData?.approval?.approval_id === approvalId) {
+          setActiveIncidentData((prev) => ({
+            ...prev,
+            approval: res.data.approval,
+            incident: {
+              ...prev.incident,
+              approval_status: "APPROVED",
+              status: "ACTIVE",
+              deployed_resources: res.data.dispatched_resources,
+            },
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Approval error:", err);
+      showToast(err.response?.data?.detail || "Approval failed.", "error");
+    }
+  };
 
-  // Deployed resources can come from either approval state
-  // or incidentData approval.
-  const deployedResources =
-    approval?.approval
-      ?.selected_resources ||
-    approval?.selected_resources ||
-    incidentData?.approval
-      ?.selected_resources ||
-    currentApproval?.selected_resources ||
-    [];
+  const handleRejectPlan = (approvalId) => {
+    const reason = window.prompt("Enter official rejection reason:");
+    if (!reason || !reason.trim()) return;
+
+    axios
+      .post(`${API_BASE_URL}/api/emergency/approvals/${approvalId}/reject`, {
+        rejected_by: user?.name || user?.username || "Campus Emergency Commander",
+        reason: reason.trim(),
+      })
+      .then((res) => {
+        if (res.data.success) {
+          showToast("Response plan rejected.", "info");
+          loadApprovals();
+          loadIncidents();
+        }
+      })
+      .catch((err) => {
+        showToast(err.response?.data?.detail || "Rejection failed.", "error");
+      });
+  };
+
+  // ============================================================
+  // ADMIN RESOLVE & CLOSE INCIDENT
+  // ============================================================
+  const handleResolveIncident = (incidentId) => {
+    setConfirmModal({
+      title: "Resolve Campus Incident",
+      message: `Confirm incident ${incidentId} resolution. Deployed units will be marked ready for revocation.`,
+      confirmLabel: "Mark as Resolved",
+      confirmClass: "btn-confirm-success",
+      onConfirm: async () => {
+        try {
+          const res = await axios.post(`${API_BASE_URL}/api/emergency/incidents/${incidentId}/resolve`, {
+            resolved_by: user?.name || user?.username || "Campus Emergency Commander",
+            notes: "Incident resolved safely.",
+          });
+          if (res.data.success) {
+            showToast(`Incident ${incidentId} marked as RESOLVED.`, "success");
+            loadIncidents();
+            loadResources();
+            loadResourceSummary();
+          }
+        } catch (err) {
+          showToast("Failed to resolve incident.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  // ============================================================
+  // ADMIN BULK RELEASE / REVOKE RESOURCES
+  // ============================================================
+  const handleReleaseAllDeployed = () => {
+    const deployedList = resources.filter((r) => r.status === "DEPLOYED");
+    if (deployedList.length === 0) {
+      showToast("No units are currently deployed.", "info");
+      return;
+    }
+
+    setConfirmModal({
+      title: "Stand Down All Deployed Units",
+      message: `Release ${deployedList.length} deployed units back to AVAILABLE status?`,
+      confirmLabel: "Release All Units",
+      confirmClass: "btn-confirm-warning",
+      onConfirm: async () => {
+        try {
+          for (const res of deployedList) {
+            await axios.post(`${API_BASE_URL}/api/resources/${res.id}/revoke`, {
+              incident_id: res.incident_id,
+              revoked_by: user?.name || user?.username || "Campus Emergency Commander",
+              reason: "Incident stand-down order",
+            });
+          }
+          showToast(`All ${deployedList.length} units returned to AVAILABLE.`, "success");
+          loadResources();
+          loadResourceSummary();
+        } catch (err) {
+          showToast("Failed to release all units.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  // ============================================================
+  // ADMIN RESOURCE DEPLOY & REVOKE
+  // ============================================================
+  const handleDeployResourceDirect = async (resourceId, incidentId = "INC-MANUAL") => {
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/resources/${resourceId}/deploy`, {
+        incident_id: incidentId,
+        deployed_by: user?.name || user?.username || "Campus Emergency Commander",
+      });
+      if (res.data.success) {
+        showToast(`Resource ${resourceId} deployed.`, "success");
+        loadResources();
+        loadResourceSummary();
+        loadAlerts();
+      }
+    } catch (err) {
+      showToast(err.response?.data?.detail || "Deployment failed.", "error");
+    }
+  };
+
+  const handleRevokeResource = (resourceId, incidentId) => {
+    setConfirmModal({
+      title: "Revoke Emergency Unit",
+      message: `Revoke unit ${resourceId} and return to AVAILABLE status?`,
+      confirmLabel: "Confirm Revoke",
+      confirmClass: "btn-confirm-warning",
+      onConfirm: async () => {
+        try {
+          const res = await axios.post(`${API_BASE_URL}/api/resources/${resourceId}/revoke`, {
+            incident_id: incidentId,
+            revoked_by: user?.name || user?.username || "Campus Emergency Commander",
+            reason: "Stand-down order",
+          });
+          if (res.data.success) {
+            showToast(`Resource ${resourceId} returned to AVAILABLE.`, "success");
+            loadResources();
+            loadResourceSummary();
+          }
+        } catch (err) {
+          showToast(err.response?.data?.detail || "Revocation failed.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  // ============================================================
+  // RESOURCE SAVE / EDIT / DELETE
+  // ============================================================
+  const handleSaveResource = async (e) => {
+    e.preventDefault();
+    setResourceFormLoading(true);
+    setResourceFormError("");
+
+    try {
+      if (editingResource) {
+        await axios.put(`${API_BASE_URL}/api/resources/${editingResource.id}`, resourceForm);
+        showToast(`Resource ${editingResource.id} updated.`, "success");
+      } else {
+        await axios.post(`${API_BASE_URL}/api/resources`, resourceForm);
+        showToast(`Resource ${resourceForm.id} registered.`, "success");
+      }
+      setShowResourceModal(false);
+      setEditingResource(null);
+      loadResources();
+      loadResourceSummary();
+    } catch (err) {
+      setResourceFormError(err.response?.data?.detail || "Failed to save resource.");
+    } finally {
+      setResourceFormLoading(false);
+    }
+  };
+
+  const handleDeleteResource = (resourceId) => {
+    setConfirmModal({
+      title: "Deactivate Unit",
+      message: `Confirm removal of resource ${resourceId} from active fleet.`,
+      confirmLabel: "Delete Unit",
+      confirmClass: "btn-confirm-danger",
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_BASE_URL}/api/resources/${resourceId}`);
+          showToast(`Resource ${resourceId} removed.`, "info");
+          loadResources();
+          loadResourceSummary();
+        } catch (err) {
+          showToast(err.response?.data?.detail || "Failed to delete.", "error");
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  const openAddResource = () => {
+    setEditingResource(null);
+    setResourceForm({
+      id: `RES-${Math.floor(100 + Math.random() * 900)}`,
+      name: "",
+      type: "Security",
+      location: "Main Security Office",
+      capacity: 2,
+      status: "AVAILABLE",
+      contact_name: "",
+      phone_number: "",
+      email: "",
+      vehicle_number: "",
+      designation: "",
+    });
+    setResourceFormError("");
+    setShowResourceModal(true);
+  };
+
+  const openEditResource = (res) => {
+    setEditingResource(res);
+    setResourceForm({
+      id: res.id,
+      name: res.name || "",
+      type: res.type || "Security",
+      location: res.location || "",
+      capacity: res.capacity || 1,
+      status: res.status || "AVAILABLE",
+      contact_name: res.contact_name || "",
+      phone_number: res.phone_number || "",
+      email: res.email || "",
+      vehicle_number: res.vehicle_number || "",
+      designation: res.designation || "",
+    });
+    setResourceFormError("");
+    setShowResourceModal(true);
+  };
+
+  // Filtered resources
+  const filteredResources = useMemo(() => {
+    if (resourceFilter === "ALL") return resources;
+    return resources.filter((r) => r.type === resourceFilter || r.status === resourceFilter);
+  }, [resources, resourceFilter]);
+
+  // Derived current active incident
+  const activeIncident = activeIncidentData?.incident || (incidents.find((i) => i.status === "ACTIVE") || (incidents.length > 0 ? incidents[0] : null));
+  const hasActiveEmergency = Boolean(activeIncident && (activeIncident.status === "ACTIVE" || activeIncident.status === "PENDING"));
+  const pendingApprovalsCount = approvals.filter((a) => a.status === "PENDING").length;
+
+  const deployedResourceIds = useMemo(() => {
+    return resources.filter((r) => r.status === "DEPLOYED").map((r) => r.id);
+  }, [resources]);
+
+  // Filtered incidents for search and status filter
+  const filteredIncidents = useMemo(() => {
+    let result = incidents;
+    if (incidentFilterStatus !== "ALL") {
+      result = result.filter((i) => i.status === incidentFilterStatus);
+    }
+    if (incidentSearchQuery.trim()) {
+      const q = incidentSearchQuery.toLowerCase();
+      result = result.filter(
+        (i) =>
+          i.incident_id?.toLowerCase().includes(q) ||
+          i.location?.toLowerCase().includes(q) ||
+          i.incident_type?.toLowerCase().includes(q) ||
+          i.student_name?.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [incidents, incidentSearchQuery, incidentFilterStatus]);
 
   return (
-    <div className="app-shell">
-      {sidebarOpen && (
-        <div
-          className="mobile-overlay"
-          onClick={() =>
-            setSidebarOpen(false)
-          }
-        />
+    <div className="aegis-app-shell">
+      {/* NOTIFICATION TOAST */}
+      {toastMessage && (
+        <div className={`ops-toast-bar toast-${toastMessage.type}`}>
+          <span>{toastMessage.text}</span>
+          <button onClick={() => setToastMessage(null)}>
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* CONFIRMATION DIALOG MODAL */}
+      {confirmModal && (
+        <div className="ops-modal-backdrop">
+          <div className="ops-modal confirm-dialog">
+            <div className="ops-modal-header">
+              <h3>{confirmModal.title}</h3>
+              <button onClick={() => setConfirmModal(null)}><X size={14} /></button>
+            </div>
+            <div className="ops-modal-body">
+              <p>{confirmModal.message}</p>
+            </div>
+            <div className="ops-modal-footer">
+              <button type="button" className="btn-ops-secondary" onClick={() => setConfirmModal(null)}>Cancel</button>
+              <button type="button" className={`btn-ops-primary ${confirmModal.confirmClass || ""}`} onClick={confirmModal.onConfirm}>
+                {confirmModal.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INCIDENT DETAILS & EVIDENCE INSPECTOR MODAL */}
+      {selectedIncidentModal && (
+        <div className="ops-modal-backdrop" onClick={() => setSelectedIncidentModal(null)}>
+          <div className="ops-modal incident-inspector-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ops-modal-header">
+              <div>
+                <h3>INCIDENT RECORD: {selectedIncidentModal.incident_id}</h3>
+                <small className="mono-sub">{new Date(selectedIncidentModal.created_at).toLocaleString()}</small>
+              </div>
+              <button onClick={() => setSelectedIncidentModal(null)}><X size={16} /></button>
+            </div>
+
+            <div className="ops-modal-body inspector-grid">
+              <div className="meta-strip">
+                <span className={`status-tag status-${(selectedIncidentModal.status || "pending").toLowerCase()}`}>
+                  STATUS: {selectedIncidentModal.status}
+                </span>
+                <span className={`sev-tag sev-${(selectedIncidentModal.severity || "medium").toLowerCase()}`}>
+                  {selectedIncidentModal.severity} SEVERITY
+                </span>
+                <span className="location-tag">📍 {selectedIncidentModal.location}</span>
+                <span className="type-tag">{selectedIncidentModal.incident_type}</span>
+              </div>
+
+              <div className="inspector-field">
+                <label>INCIDENT DESCRIPTION</label>
+                <div className="field-box-content">{selectedIncidentModal.description}</div>
+              </div>
+
+              <div className="inspector-field">
+                <label>PHOTOGRAPHIC EVIDENCE</label>
+                {selectedIncidentModal.image_data ? (
+                  <div className="evidence-preview-wrap">
+                    <img src={selectedIncidentModal.image_data} alt="Evidence" className="evidence-full-img" />
+                  </div>
+                ) : (
+                  <div className="no-evidence-box">No photographic evidence attached to this record.</div>
+                )}
+              </div>
+
+              {selectedIncidentModal.summary && (
+                <div className="inspector-field">
+                  <label>SITUATION ASSESSMENT & AI TRIAGE</label>
+                  <div className="field-box-content">{selectedIncidentModal.summary}</div>
+                </div>
+              )}
+
+              {selectedIncidentModal.deployed_resources?.length > 0 && (
+                <div className="inspector-field">
+                  <label>DEPLOYED UNITS</label>
+                  <div className="units-list-row">
+                    {selectedIncidentModal.deployed_resources.map((rId) => (
+                      <span key={rId} className="unit-pill">🚨 {rId}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* TIMELINE PROGRESSION */}
+              <div className="inspector-field">
+                <label>IMMUTABLE INCIDENT AUDIT TIMELINE</label>
+                <div className="inspector-timeline">
+                  <div className="timeline-step done">
+                    <span className="t-dot" />
+                    <div><strong>Incident Reported</strong><small>{new Date(selectedIncidentModal.created_at).toLocaleTimeString()}</small></div>
+                  </div>
+                  <div className="timeline-step done">
+                    <span className="t-dot" />
+                    <div><strong>AI Intelligence Triage & Plan Generated</strong><small>Severity: {selectedIncidentModal.severity}</small></div>
+                  </div>
+                  <div className={`timeline-step ${selectedIncidentModal.approval_status === "APPROVED" ? "done" : "active"}`}>
+                    <span className="t-dot" />
+                    <div><strong>Commander Authorization</strong><small>{selectedIncidentModal.approval_status || "PENDING"}</small></div>
+                  </div>
+                  {selectedIncidentModal.status === "RESOLVED" && (
+                    <div className="timeline-step done">
+                      <span className="t-dot" />
+                      <div><strong>Incident Marked Resolved</strong><small>Safety verified</small></div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="reporter-bar">
+                <span>Reporter: <strong>{selectedIncidentModal.student_name}</strong></span>
+                <span>Email: {selectedIncidentModal.student_email || "N/A"}</span>
+              </div>
+            </div>
+
+            <div className="ops-modal-footer">
+              {isAdmin && selectedIncidentModal.status === "ACTIVE" && (
+                <button
+                  type="button"
+                  className="btn-ops-primary btn-confirm-success"
+                  onClick={() => {
+                    setSelectedIncidentModal(null);
+                    handleResolveIncident(selectedIncidentModal.incident_id);
+                  }}
+                >
+                  Mark as Resolved
+                </button>
+              )}
+              <button type="button" className="btn-ops-secondary" onClick={() => setSelectedIncidentModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESOURCE ADD / EDIT MODAL (ADMIN) */}
+      {showResourceModal && (
+        <div className="ops-modal-backdrop">
+          <div className="ops-modal resource-modal-dialog">
+            <div className="ops-modal-header">
+              <h3>{editingResource ? `EDIT RESOURCE: ${editingResource.id}` : "REGISTER NEW CAMPUS UNIT"}</h3>
+              <button onClick={() => setShowResourceModal(false)}><X size={14} /></button>
+            </div>
+
+            <form onSubmit={handleSaveResource} className="ops-modal-body form-two-col">
+              {resourceFormError && <div className="form-alert-error">{resourceFormError}</div>}
+
+              <div className="field-group">
+                <label>UNIT ID *</label>
+                <input
+                  type="text"
+                  value={resourceForm.id}
+                  disabled={Boolean(editingResource)}
+                  onChange={(e) => setResourceForm({ ...resourceForm, id: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field-group">
+                <label>UNIT DESIGNATION / NAME *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Patrol Unit 01"
+                  value={resourceForm.name}
+                  onChange={(e) => setResourceForm({ ...resourceForm, name: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field-group">
+                <label>CATEGORY *</label>
+                <select
+                  value={resourceForm.type}
+                  onChange={(e) => setResourceForm({ ...resourceForm, type: e.target.value })}
+                >
+                  <option value="Security">Security</option>
+                  <option value="Medical">Medical / Ambulance</option>
+                  <option value="First Aid">First Aid</option>
+                  <option value="Facilities">Facilities</option>
+                  <option value="Transport">Transport</option>
+                  <option value="Communication">Communication</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label>BASE STATION LOCATION *</label>
+                <input
+                  type="text"
+                  value={resourceForm.location}
+                  onChange={(e) => setResourceForm({ ...resourceForm, location: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field-group">
+                <label>STATUS</label>
+                <select
+                  value={resourceForm.status}
+                  onChange={(e) => setResourceForm({ ...resourceForm, status: e.target.value })}
+                >
+                  <option value="AVAILABLE">AVAILABLE</option>
+                  <option value="DEPLOYED">DEPLOYED</option>
+                  <option value="UNAVAILABLE">UNAVAILABLE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label>CAPACITY (PERSONNEL)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={resourceForm.capacity}
+                  onChange={(e) => setResourceForm({ ...resourceForm, capacity: e.target.value })}
+                />
+              </div>
+
+              <div className="field-divider-full">RESPONDER IN-CHARGE CONTACT DETAILS</div>
+
+              <div className="field-group">
+                <label>IN-CHARGE / DRIVER NAME</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Rajesh Varma"
+                  value={resourceForm.contact_name}
+                  onChange={(e) => setResourceForm({ ...resourceForm, contact_name: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label>PHONE (FOR DISPATCH ALERTS)</label>
+                <input
+                  type="text"
+                  placeholder="+91 94401 55501"
+                  value={resourceForm.phone_number}
+                  onChange={(e) => setResourceForm({ ...resourceForm, phone_number: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label>VEHICLE REGISTRATION NO</label>
+                <input
+                  type="text"
+                  placeholder="AP-07-EM-01"
+                  value={resourceForm.vehicle_number}
+                  onChange={(e) => setResourceForm({ ...resourceForm, vehicle_number: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label>ROLE / DESIGNATION</label>
+                <input
+                  type="text"
+                  placeholder="Paramedic Lead"
+                  value={resourceForm.designation}
+                  onChange={(e) => setResourceForm({ ...resourceForm, designation: e.target.value })}
+                />
+              </div>
+
+              <div className="ops-modal-footer col-span-2">
+                <button type="button" className="btn-ops-secondary" onClick={() => setShowResourceModal(false)}>Cancel</button>
+                <button type="submit" className="btn-ops-primary" disabled={resourceFormLoading}>
+                  {resourceFormLoading ? "Saving..." : editingResource ? "Update Unit" : "Register Unit"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* ======================================================
-          SIDEBAR
-      ====================================================== */}
-
-      <aside
-        className={`sidebar ${
-          sidebarOpen
-            ? "sidebar-open"
-            : ""
-        }`}
-      >
-        <div className="brand">
-          <div className="brand-icon">
-            <Siren size={24} />
-          </div>
-
-          <div>
-            <div className="brand-name">
-              AegisCampus
+          GLOBAL APPLICATION SHELL: SIDEBAR & NAVIGATION
+          ====================================================== */}
+      <div className="aegis-layout-container">
+        {/* LEFT COMMAND SIDEBAR */}
+        <aside className="aegis-sidebar">
+          <div className="sidebar-brand-block">
+            <div className="brand-emblem-row">
+              <ShieldAlert size={18} className="text-cyan" />
+              <span className="brand-title">AEGISCAMPUS</span>
             </div>
-
-            <div className="brand-subtitle">
-              AI COMMAND CENTER
-            </div>
-          </div>
-
-          <button
-            className="mobile-close"
-            onClick={() =>
-              setSidebarOpen(false)
-            }
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="system-status">
-          <span className="status-dot" />
-          <span>
-            System Operational
-          </span>
-        </div>
-
-        <nav className="sidebar-nav">
-          <button
-            className={`nav-item ${
-              activePage === "command"
-                ? "active"
-                : ""
-            }`}
-            onClick={() =>
-              handleNavigation("command")
-            }
-          >
-            <LayoutDashboard size={19} />
-            <span>
-              Command Center
-            </span>
-          </button>
-
-          <button
-            className={`nav-item ${
-              activePage === "incidents"
-                ? "active"
-                : ""
-            }`}
-            onClick={() =>
-              handleNavigation("incidents")
-            }
-          >
-            <AlertTriangle size={19} />
-            <span>Incidents</span>
-          </button>
-
-          <button
-            className={`nav-item ${
-              activePage === "resources"
-                ? "active"
-                : ""
-            }`}
-            onClick={() =>
-              handleNavigation("resources")
-            }
-          >
-            <Users size={19} />
-            <span>Resources</span>
-          </button>
-
-          {isAdmin && (
-            <button
-              className={`nav-item ${
-                activePage === "approvals"
-                  ? "active"
-                  : ""
-              }`}
-              onClick={() =>
-                handleNavigation(
-                  "approvals"
-                )
-              }
-            >
-              <CheckCircle2 size={19} />
-              <span>Approvals</span>
-            </button>
-          )}
-
-          <button
-            className={`nav-item ${
-              activePage === "audit"
-                ? "active"
-                : ""
-            }`}
-            onClick={() =>
-              handleNavigation("audit")
-            }
-          >
-            <ClipboardList size={19} />
-            <span>Audit Trail</span>
-          </button>
-
-          <button
-            className={`nav-item ${
-              activePage === "map"
-                ? "active"
-                : ""
-            }`}
-            onClick={() =>
-              handleNavigation("map")
-            }
-          >
-            <Map size={19} />
-            <span>Campus Map</span>
-          </button>
-        </nav>
-
-        <div className="sidebar-user">
-          <div className="sidebar-user-avatar">
-            {user?.photoURL ? (
-              <img
-                src={user.photoURL}
-                alt="Profile"
-              />
-            ) : (
-              <Users size={20} />
-            )}
-          </div>
-
-          <div className="sidebar-user-info">
-            <strong>
-              {isAdmin
-                ? user?.username ||
-                  "Administrator"
-                : studentName}
-            </strong>
-
-            <span>
-              {isAdmin
-                ? "Administrator"
-                : "Student"}
+            <span className="brand-subtitle">
+              {isAdmin ? "Emergency Operations Center" : "Campus Safety Intelligence"}
             </span>
           </div>
 
-          <button
-            type="button"
-            className="logout-button"
-            onClick={handleLogout}
-            title="Logout"
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
-
-        <div className="sidebar-footer">
-          <div className="ai-status">
-            <Radio size={16} />
-
-            <span>
-              Multi-Agent AI
-            </span>
-
-            <span className="online-label">
-              ONLINE
-            </span>
+          <div className="sidebar-role-indicator">
+            <span className={`role-dot ${hasActiveEmergency ? "dot-alert" : ""}`} />
+            <span>{isAdmin ? "SECURITY COMMANDER" : "STUDENT COMPANION"}</span>
           </div>
 
-          <div className="version">
-            AegisCampus AI v1.0
-          </div>
-        </div>
-      </aside>
-
-      {/* ======================================================
-          MAIN CONTENT
-      ====================================================== */}
-
-      <main className="main-content">
-        <header className="topbar">
-          <button
-            className="menu-button"
-            onClick={() =>
-              setSidebarOpen(true)
-            }
-          >
-            <Menu size={22} />
-          </button>
-
-          <div>
-            <div className="topbar-title">
-              Emergency Command Center
-            </div>
-
-            <div className="topbar-subtitle">
-              Multi-Agent Campus Safety
-              Operations
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-              marginLeft: "auto",
-            }}
-          >
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAdminPanel(
-                    (previous) =>
-                      !previous
-                  );
-
-                  setAdminMessage("");
-                  setAdminError("");
-                }}
-                className="admin-button"
-              >
-                Admin Resource Management
-              </button>
-            )}
-
-            <div
-              className="user-info"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "14px",
-                  fontWeight: "600",
-                }}
-              >
-                {isAdmin
-                  ? user?.username ||
-                    "Administrator"
-                  : studentName}
-              </span>
-
-              <span
-                style={{
-                  fontSize: "12px",
-                  opacity: 0.7,
-                }}
-              >
-                (
-                {isAdmin
-                  ? "Administrator"
-                  : "Student"}
-                )
-              </span>
-            </div>
-
-            <div className="topbar-status">
-              <span className="status-dot" />
-              LIVE
-            </div>
-          </div>
-        </header>
-
-        <div className="dashboard">
-          {/* ==================================================
-              ADMIN RESOURCE PANEL
-          ================================================== */}
-
-          {isAdmin &&
-            showAdminPanel && (
-              <section
-                className="admin-panel panel"
-                style={{
-                  marginBottom: "24px",
-                }}
-              >
-                <div className="admin-panel-header panel-heading">
-                  <div>
-                    <h2>
-                      Admin Resource Management
-                    </h2>
-
-                    <p>
-                      Add and manage campus
-                      emergency resources.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowAdminPanel(false)
-                    }
-                    className="admin-close-button secondary-button"
-                  >
-                    Close
-                  </button>
-                </div>
-
-                <form
-                  onSubmit={handleAddResource}
-                  className="admin-resource-form"
+          <nav className="sidebar-nav">
+            {isAdmin ? (
+              <>
+                <button
+                  className={`nav-item ${activeTab === "command" ? "active" : ""}`}
+                  onClick={() => setActiveTab("command")}
                 >
-                  <div className="form-group">
-                    <label>
-                      Resource ID
-                    </label>
-
-                    <input
-                      type="text"
-                      placeholder="Example: SEC-003"
-                      value={newResource.id}
-                      onChange={(e) =>
-                        setNewResource({
-                          ...newResource,
-                          id: e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>
-                      Resource Name
-                    </label>
-
-                    <input
-                      type="text"
-                      placeholder="Example: Security Team Charlie"
-                      value={newResource.name}
-                      onChange={(e) =>
-                        setNewResource({
-                          ...newResource,
-                          name: e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>
-                      Resource Type
-                    </label>
-
-                    <select
-                      value={newResource.type}
-                      onChange={(e) =>
-                        setNewResource({
-                          ...newResource,
-                          type: e.target.value,
-                        })
-                      }
-                      required
-                    >
-                      <option value="">
-                        Select type
-                      </option>
-
-                      <option value="Security">
-                        Security
-                      </option>
-
-                      <option value="Medical">
-                        Medical
-                      </option>
-
-                      <option value="First Aid">
-                        First Aid
-                      </option>
-
-                      <option value="Facilities">
-                        Facilities
-                      </option>
-
-                      <option value="Transport">
-                        Transport
-                      </option>
-
-                      <option value="Communication">
-                        Communication
-                      </option>
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Status</label>
-
-                    <select
-                      value={newResource.status}
-                      onChange={(e) =>
-                        setNewResource({
-                          ...newResource,
-                          status:
-                            e.target.value,
-                        })
-                      }
-                    >
-                      <option value="AVAILABLE">
-                        AVAILABLE
-                      </option>
-
-                      <option value="UNAVAILABLE">
-                        UNAVAILABLE
-                      </option>
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label>
-                      Location
-                    </label>
-
-                    <input
-                      type="text"
-                      placeholder="Example: North Gate"
-                      value={
-                        newResource.location
-                      }
-                      onChange={(e) =>
-                        setNewResource({
-                          ...newResource,
-                          location:
-                            e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>
-                      Capacity
-                    </label>
-
-                    <input
-                      type="number"
-                      min="1"
-                      value={
-                        newResource.capacity
-                      }
-                      onChange={(e) =>
-                        setNewResource({
-                          ...newResource,
-                          capacity:
-                            e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-
-                  {adminMessage && (
-                    <div
-                      className="admin-success"
-                      style={{
-                        color: "#10b981",
-                        margin: "8px 0",
-                      }}
-                    >
-                      {adminMessage}
-                    </div>
-                  )}
-
-                  {adminError && (
-                    <div
-                      className="admin-error error-box"
-                      style={{
-                        margin: "8px 0",
-                      }}
-                    >
-                      <AlertTriangle size={18} />
-                      <span>
-                        {adminError}
-                      </span>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={adminLoading}
-                    className="admin-submit-button analyze-button"
-                    style={{
-                      marginTop: "12px",
-                    }}
-                  >
-                    {adminLoading
-                      ? "Adding Resource..."
-                      : "Add Resource"}
-                  </button>
-                </form>
-              </section>
-            )}
-
-          {/* ==================================================
-              INCIDENT HISTORY
-          ================================================== */}
-
-          {activePage === "incidents" ? (
-            <section className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>
-                    Incident History
-                  </h2>
-
-                  <p>
-                    Previous emergency incidents
-                    stored in MongoDB.
-                  </p>
-                </div>
-
-                <AlertTriangle size={21} />
-              </div>
-
-              {historyLoading && (
-                <div className="empty-state">
-                  <span className="spinner" />
-
-                  <p>
-                    Loading incident
-                    history...
-                  </p>
-                </div>
-              )}
-
-              {historyError && (
-                <div className="error-box">
-                  <AlertTriangle size={18} />
-
-                  <span>
-                    {historyError}
-                  </span>
-                </div>
-              )}
-
-              {!historyLoading &&
-                !historyError &&
-                incidentHistory.length ===
-                  0 && (
-                  <div className="empty-state">
-                    <div className="empty-icon">
-                      <AlertTriangle
-                        size={30}
-                      />
-                    </div>
-
-                    <h2>
-                      No Incidents Yet
-                    </h2>
-
-                    <p>
-                      Emergency incidents
-                      will appear here after
-                      they are analyzed.
-                    </p>
-                  </div>
-                )}
-
-              {!historyLoading &&
-                incidentHistory.length >
-                  0 && (
-                  <div className="resource-list">
-                    {incidentHistory.map(
-                      (item) => (
-                        <div
-                          className="resource-row"
-                          key={
-                            item.incident_id
-                          }
-                        >
-                          <div className="resource-symbol">
-                            <AlertTriangle
-                              size={17}
-                            />
-                          </div>
-
-                          <div
-                            style={{
-                              flex: 1,
-                            }}
-                          >
-                            <strong>
-                              {item.incident_type ||
-                                "Incident"}
-                            </strong>
-
-                            <div>
-                              ID:{" "}
-                              {
-                                item.incident_id
-                              }
-                            </div>
-
-                            <div>
-                              📍{" "}
-                              {item.location ||
-                                "Unknown location"}
-                            </div>
-
-                            <div>
-                              👥 Affected
-                              people:{" "}
-                              {item.affected_people ??
-                                "Unknown"}
-                            </div>
-
-                            <div>
-                              🕐{" "}
-                              {item.created_at
-                                ? new Date(
-                                    item.created_at
-                                  ).toLocaleString()
-                                : "Unknown time"}
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              display:
-                                "flex",
-                              flexDirection:
-                                "column",
-                              alignItems:
-                                "flex-end",
-                              gap: "6px",
-                            }}
-                          >
-                            <span className="available">
-                              {item.severity ||
-                                "UNKNOWN"}
-                            </span>
-
-                            <span>
-                              {item.status ||
-                                "UNKNOWN"}
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-            </section>
-          ) : activePage === "audit" ? (
-            /* ==================================================
-               AUDIT TRAIL
-            ================================================== */
-
-            <section className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>
-                    Audit Trail
-                  </h2>
-
-                  <p>
-                    Complete emergency activity
-                    history stored in MongoDB.
-                  </p>
-                </div>
-
-                <ClipboardList size={21} />
-              </div>
-
-              {auditLoading && (
-                <div className="empty-state">
-                  <span className="spinner" />
-
-                  <p>
-                    Loading audit history...
-                  </p>
-                </div>
-              )}
-
-              {auditError && (
-                <div className="error-box">
-                  <AlertTriangle size={18} />
-
-                  <span>
-                    {auditError}
-                  </span>
-                </div>
-              )}
-
-              {!auditLoading &&
-                !auditError &&
-                auditEvents.length ===
-                  0 && (
-                  <div className="empty-state">
-                    <div className="empty-icon">
-                      <ClipboardList
-                        size={30}
-                      />
-                    </div>
-
-                    <h2>
-                      No Audit Events
-                    </h2>
-
-                    <p>
-                      Emergency workflow events
-                      will appear here.
-                    </p>
-                  </div>
-                )}
-
-              {!auditLoading &&
-                !auditError &&
-                auditEvents.length >
-                  0 && (
-                  <div className="audit-list">
-                    {auditEvents.map(
-                      (event) => (
-                        <div
-                          className="audit-row"
-                          key={
-                            event.event_id
-                          }
-                        >
-                          <div className="audit-dot" />
-
-                          <div className="audit-content">
-                            <strong>
-                              {
-                                event.event_type
-                              }
-                            </strong>
-
-                            <p>
-                              {event.message}
-                            </p>
-
-                            <small>
-                              Incident:{" "}
-                              {
-                                event.incident_id
-                              }
-                            </small>
-
-                            <small>
-                              {event.timestamp
-                                ? new Date(
-                                    event.timestamp
-                                  ).toLocaleString()
-                                : ""}
-                            </small>
-                          </div>
-
-                          <span className="audit-actor">
-                            {event.actor}
-                          </span>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-            </section>
-          ) : activePage ===
-              "approvals" &&
-            isAdmin ? (
-            /* ==================================================
-               ADMIN APPROVALS
-            ================================================== */
-
-            <section className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>
-                    Emergency Approvals
-                  </h2>
-
-                  <p>
-                    Human authorization requests
-                    from the emergency command
-                    system.
-                  </p>
-                </div>
-
-                <Shield size={21} />
-              </div>
-
-              {approvalsLoading && (
-                <div className="empty-state">
-                  <span className="spinner" />
-
-                  <p>
-                    Loading approvals...
-                  </p>
-                </div>
-              )}
-
-              {approvalsError && (
-                <div className="error-box">
-                  <AlertTriangle size={18} />
-
-                  <span>
-                    {approvalsError}
-                  </span>
-                </div>
-              )}
-
-              {!approvalsLoading &&
-                !approvalsError &&
-                approvals.length ===
-                  0 && (
-                  <div className="empty-state">
-                    <div className="empty-icon">
-                      <Shield size={30} />
-                    </div>
-
-                    <h2>
-                      No Approval Requests
-                    </h2>
-
-                    <p>
-                      New emergency approval
-                      requests will appear here.
-                    </p>
-                  </div>
-                )}
-
-              {!approvalsLoading &&
-                !approvalsError &&
-                approvals.length >
-                  0 && (
-                  <div className="approval-list">
-                    {approvals.map(
-                      (approvalItem) => {
-                        const incidentDetails =
-                          approvalItem
-                            .response_plan
-                            ?.incident_details ||
-                          {};
-
-                        const approvalImage =
-                          incidentDetails.image_data ||
-                          incidentDetails.image ||
-                          approvalItem.image_data ||
-                          "";
-
-                        return (
-                          <div
-                            className="approval-card"
-                            key={
-                              approvalItem.approval_id
-                            }
-                          >
-                            <div className="approval-card-header">
-                              <div>
-                                <h3>
-                                  {
-                                    approvalItem.approval_id
-                                  }
-                                </h3>
-
-                                <p>
-                                  Incident:{" "}
-                                  {
-                                    approvalItem.incident_id
-                                  }
-                                </p>
-                              </div>
-
-                              <span
-                                className={`status-badge ${
-                                  approvalItem.status?.toLowerCase()
-                                }`}
-                              >
-                                {
-                                  approvalItem.status
-                                }
-                              </span>
-                            </div>
-
-                            {/* STUDENT INFORMATION */}
-
-                            {(incidentDetails.student_name ||
-                              incidentDetails.student_email ||
-                              incidentDetails.description ||
-                              incidentDetails.location) && (
-                              <div className="approval-incident-details">
-                                {incidentDetails.student_name && (
-                                  <div className="approval-student-info">
-                                    <span>
-                                      Reported By
-                                    </span>
-
-                                    <strong>
-                                      {
-                                        incidentDetails.student_name
-                                      }
-                                    </strong>
-                                  </div>
-                                )}
-
-                                {incidentDetails.student_email && (
-                                  <div className="approval-student-info">
-                                    <span>
-                                      Student Email
-                                    </span>
-
-                                    <strong>
-                                      {
-                                        incidentDetails.student_email
-                                      }
-                                    </strong>
-                                  </div>
-                                )}
-
-                                {incidentDetails.location && (
-                                  <div className="approval-student-info">
-                                    <span>
-                                      Incident Location
-                                    </span>
-
-                                    <strong>
-                                      {
-                                        incidentDetails.location
-                                      }
-                                    </strong>
-                                  </div>
-                                )}
-
-                                {incidentDetails.description && (
-                                  <div className="approval-incident-description">
-                                    <span>
-                                      Incident
-                                      Description
-                                    </span>
-
-                                    <p>
-                                      {
-                                        incidentDetails.description
-                                      }
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* INCIDENT IMAGE */}
-
-                            {approvalImage && (
-                              <div className="approval-incident-image">
-                                <div className="approval-image-label">
-                                  Incident
-                                  Evidence
-                                </div>
-
-                                <img
-                                  src={
-                                    approvalImage
-                                  }
-                                  alt="Incident evidence"
-                                />
-                              </div>
-                            )}
-
-                            <div className="approval-details">
-                              <div>
-                                <span>
-                                  Priority
-                                </span>
-
-                                <strong>
-                                  {
-                                    approvalItem.priority
-                                  }
-                                </strong>
-                              </div>
-
-                              <div>
-                                <span>
-                                  Requested By
-                                </span>
-
-                                <strong>
-                                  {
-                                    approvalItem.requested_by
-                                  }
-                                </strong>
-                              </div>
-
-                              <div>
-                                <span>
-                                  Requested At
-                                </span>
-
-                                <strong>
-                                  {approvalItem.requested_at
-                                    ? new Date(
-                                        approvalItem.requested_at
-                                      ).toLocaleString()
-                                    : "-"}
-                                </strong>
-                              </div>
-                            </div>
-
-                            <div className="approval-resources">
-                              <h4>
-                                Selected Resources
-                              </h4>
-
-                              <div className="resource-tags">
-                                {(
-                                  approvalItem.selected_resources ||
-                                  []
-                                ).map(
-                                  (
-                                    resource
-                                  ) => (
-                                    <span
-                                      key={
-                                        resource
-                                      }
-                                      className="resource-tag"
-                                    >
-                                      {
-                                        resource
-                                      }
-                                    </span>
-                                  )
-                                )}
-                              </div>
-                            </div>
-
-                            {approvalItem.status ===
-                              "PENDING" && (
-                              <div className="approval-actions">
-                                <button
-                                  className="approve-button"
-                                  onClick={() =>
-                                    handleApprove(
-                                      approvalItem.approval_id
-                                    )
-                                  }
-                                >
-                                  <CheckCircle2
-                                    size={17}
-                                  />
-
-                                  Approve
-                                </button>
-
-                                <button
-                                  className="reject-button"
-                                  onClick={() =>
-                                    handleReject(
-                                      approvalItem.approval_id
-                                    )
-                                  }
-                                >
-                                  <XCircle
-                                    size={17}
-                                  />
-
-                                  Reject
-                                </button>
-                              </div>
-                            )}
-
-                            {approvalItem.status ===
-                              "APPROVED" && (
-                              <div className="approval-result approved">
-                                <CheckCircle2
-                                  size={18}
-                                />
-
-                                <span>
-                                  Approved by{" "}
-                                  {approvalItem.approved_by ||
-                                    "Commander"}
-                                </span>
-                              </div>
-                            )}
-
-                            {approvalItem.status ===
-                              "REJECTED" && (
-                              <div className="approval-result rejected">
-                                <XCircle
-                                  size={18}
-                                />
-
-                                <span>
-                                  Rejected:{" "}
-                                  {approvalItem.rejection_reason ||
-                                    "No reason provided"}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }
-                    )}
-                  </div>
-                )}
-            </section>
-          ) : activePage ===
-            "resources" ? (
-            /* ==================================================
-               RESOURCES
-            ================================================== */
-
-            <section className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>
-                    Emergency Resources
-                  </h2>
-
-                  <p>
-                    Live resources available
-                    across the campus.
-                  </p>
-                </div>
-
-                <Package size={22} />
-              </div>
-
-              <div className="resource-summary-grid">
-                <div className="summary-card">
-                  <div className="summary-card-label">
-                    Total Resources
-                  </div>
-
-                  <div className="summary-card-value">
-                    {summaryLoading
-                      ? "..."
-                      : resourceSummary.total}
-                  </div>
-                </div>
-
-                <div className="summary-card">
-                  <div className="summary-card-label">
-                    Available
-                  </div>
-
-                  <div className="summary-card-value">
-                    {summaryLoading
-                      ? "..."
-                      : resourceSummary.available}
-                  </div>
-                </div>
-
-                <div className="summary-card">
-                  <div className="summary-card-label">
-                    Deployed
-                  </div>
-
-                  <div className="summary-card-value">
-                    {summaryLoading
-                      ? "..."
-                      : resourceSummary.deployed}
-                  </div>
-                </div>
-
-                <div className="summary-card">
-                  <div className="summary-card-label">
-                    Unavailable
-                  </div>
-
-                  <div className="summary-card-value">
-                    {summaryLoading
-                      ? "..."
-                      : resourceSummary.unavailable}
-                  </div>
-                </div>
-              </div>
-
-              <div className="resource-type-summary">
-                {Object.entries(
-                  resourceTypeSummary
-                ).map(
-                  ([type, summary]) => (
-                    <div
-                      className="resource-type-card"
-                      key={type}
-                    >
-                      <div className="resource-type-header">
-                        <Package size={18} />
-
-                        <h3>{type}</h3>
-                      </div>
-
-                      <div className="resource-type-stats">
-                        <div>
-                          <span>
-                            Total
-                          </span>
-
-                          <strong>
-                            {summary.total}
-                          </strong>
-                        </div>
-
-                        <div>
-                          <span>
-                            Available
-                          </span>
-
-                          <strong>
-                            {summary.available}
-                          </strong>
-                        </div>
-
-                        <div>
-                          <span>
-                            Deployed
-                          </span>
-
-                          <strong>
-                            {summary.deployed}
-                          </strong>
-                        </div>
-
-                        <div>
-                          <span>
-                            Unavailable
-                          </span>
-
-                          <strong>
-                            {summary.unavailable}
-                          </strong>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-
-              {resourcesLoading && (
-                <div className="empty-state">
-                  <p>
-                    Loading resources...
-                  </p>
-                </div>
-              )}
-
-              {resourcesError && (
-                <div className="error-box">
-                  <AlertTriangle size={18} />
-
-                  <span>
-                    {resourcesError}
-                  </span>
-                </div>
-              )}
-
-              {!resourcesLoading &&
-                !resourcesError &&
-                resources.length ===
-                  0 && (
-                  <div className="empty-state">
-                    <Package size={30} />
-
-                    <h3>
-                      No resources found
-                    </h3>
-
-                    <p>
-                      Resources added by the
-                      administrator will
-                      appear here.
-                    </p>
-                  </div>
-                )}
-
-              {!resourcesLoading &&
-                resources.length >
-                  0 && (
-                  <div className="resource-grid">
-                    {resources.map(
-                      (resource) => (
-                        <div
-                          className="resource-card"
-                          key={resource.id}
-                        >
-                          <div className="resource-card-top">
-                            <div className="resource-icon">
-                              <Package
-                                size={20}
-                              />
-                            </div>
-
-                            <span
-                              className={`resource-status ${
-                                resource.status?.toLowerCase()
-                              }`}
-                            >
-                              {
-                                resource.status
-                              }
-                            </span>
-                          </div>
-
-                          <h3>
-                            {
-                              resource.name
-                            }
-                          </h3>
-
-                          <p className="resource-id">
-                            {resource.id}
-                          </p>
-
-                          <div className="resource-info">
-                            <div>
-                              <span>
-                                Type
-                              </span>
-
-                              <strong>
-                                {
-                                  resource.type
-                                }
-                              </strong>
-                            </div>
-
-                            <div>
-                              <span>
-                                Location
-                              </span>
-
-                              <strong>
-                                {
-                                  resource.location
-                                }
-                              </strong>
-                            </div>
-
-                            <div>
-                              <span>
-                                Capacity
-                              </span>
-
-                              <strong>
-                                {
-                                  resource.capacity
-                                }
-                              </strong>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-            </section>
-          ) : (
-            /* ==================================================
-               COMMAND CENTER
-            ================================================== */
-
-            <>
-              <section className="hero-card">
-                <div className="hero-content">
-                  <div className="eyebrow">
-                    <Siren size={15} />
-                    AI EMERGENCY RESPONSE
-                  </div>
-
-                  <h1>
-                    Analyze a Campus
-                    Emergency
-                  </h1>
-
-                  <p>
-                    Describe the incident and
-                    let AegisCampus AI coordinate
-                    specialized response teams,
-                    resources and emergency
-                    actions.
-                  </p>
-                </div>
-
-                <div className="hero-symbol">
-                  <Siren size={82} />
-                </div>
-              </section>
-
-              {/* ==================================================
-                  INCIDENT INPUT
-              ================================================== */}
-
-              <section className="input-card">
-                <div className="section-heading">
-                  <div>
-                    <h2>
-                      New Emergency Incident
-                    </h2>
-
-                    <p>
-                      Provide accurate information
-                      for the AI command system.
-                    </p>
-                  </div>
-
-                  {incidentData && (
-                    <button
-                      className="secondary-button"
-                      onClick={
-                        resetIncident
-                      }
-                    >
-                      New Incident
-                    </button>
-                  )}
-                </div>
-
-                <div className="input-grid">
-                  {/* DESCRIPTION */}
-
-                  <div className="field">
-                    <label>
-                      INCIDENT DESCRIPTION
-                    </label>
-
-                    <div className="voice-input-wrapper">
-                      <textarea
-                        value={
-                          description
-                        }
-                        onChange={(event) =>
-                          setDescription(
-                            event.target
-                              .value
-                          )
-                        }
-                        placeholder="Describe the emergency or use the microphone to speak..."
-                        rows={5}
-                      />
-
-                      <button
-                        type="button"
-                        className={`voice-button ${
-                          isListening
-                            ? "listening"
-                            : ""
-                        }`}
-                        onClick={
-                          startVoiceInput
-                        }
-                        disabled={
-                          isListening
-                        }
-                        title={
-                          isListening
-                            ? "Listening..."
-                            : "Speak your emergency description"
-                        }
-                      >
-                        {isListening ? (
-                          <MicOff size={20} />
-                        ) : (
-                          <Mic size={20} />
-                        )}
-
-                        <span>
-                          {isListening
-                            ? "Listening..."
-                            : "Speak"}
-                        </span>
-                      </button>
-                    </div>
-
-                    {isListening && (
-                      <div className="voice-status">
-                        <span className="voice-dot" />
-
-                        Listening for your
-                        emergency
-                        description...
-                      </div>
-                    )}
-                  </div>
-
-                  {/* LOCATION */}
-
-                  <div className="field">
-                    <label>
-                      LOCATION
-                    </label>
-
-                    <input
-                      value={location}
-                      onChange={(event) =>
-                        setLocation(
-                          event.target
-                            .value
-                        )
-                      }
-                      placeholder="Example: Block C - 2nd Floor"
-                    />
-
-                    <div className="input-hint">
-                      <Map size={14} />
-                      Campus location
-                    </div>
-                  </div>
-
-                  {/* IMAGE */}
-
-                  <div className="field">
-                    <label>
-                      INCIDENT IMAGE /
-                      EVIDENCE
-                    </label>
-
-                    <div className="image-upload-box">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        id="incident-image"
-                        onChange={
-                          handleIncidentImage
-                        }
-                      />
-
-                      <label
-                        htmlFor="incident-image"
-                        className="image-upload-label"
-                      >
-                        📷 Choose Incident
-                        Image
-                      </label>
-
-                      {imagePreview && (
-                        <div className="incident-image-preview">
-                          <img
-                            src={
-                              imagePreview
-                            }
-                            alt="Incident evidence preview"
-                          />
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIncidentImage(
-                                null
-                              );
-
-                              setImagePreview(
-                                ""
-                              );
-
-                              const input =
-                                document.getElementById(
-                                  "incident-image"
-                                );
-
-                              if (input) {
-                                input.value =
-                                  "";
-                              }
-                            }}
-                          >
-                            Remove Image
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="error-box">
-                    <AlertTriangle size={18} />
-
-                    <span>
-                      {error}
-                    </span>
-                  </div>
-                )}
+                  <LayoutDashboard size={15} />
+                  <span>COMMAND</span>
+                </button>
 
                 <button
-                  className="analyze-button"
-                  onClick={
-                    analyzeEmergency
-                  }
-                  disabled={loading}
+                  className={`nav-item ${activeTab === "incidents" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("incidents"); loadIncidents(); }}
                 >
-                  {loading ? (
-                    <>
-                      <span className="spinner" />
-
-                      Analyzing
-                      Emergency...
-                    </>
-                  ) : (
-                    <>
-                      <Siren size={20} />
-
-                      Analyze Emergency
-                    </>
-                  )}
+                  <ClipboardList size={15} />
+                  <span>INCIDENTS</span>
+                  {incidents.length > 0 && <span className="nav-badge">{incidents.length}</span>}
                 </button>
-              </section>
 
-              {/* ==================================================
-                  CAMPUS MAP
-              ================================================== */}
+                <button
+                  className={`nav-item ${activeTab === "approvals" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("approvals"); loadApprovals(); }}
+                >
+                  <ShieldAlert size={15} />
+                  <span>APPROVALS</span>
+                  {pendingApprovalsCount > 0 && <span className="nav-badge alert-badge">{pendingApprovalsCount}</span>}
+                </button>
 
-              <CampusMap
-                incidentLocation={
-                  incidentData?.incident
-                    ?.location ||
-                  incidentData?.location ||
-                  incident?.location ||
-                  location ||
-                  "Campus Monitoring"
-                }
-                deployedResources={
-                  deployedResources
-                }
-              />
+                <button
+                  className={`nav-item ${activeTab === "resources" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("resources"); loadResources(); loadResourceSummary(); }}
+                >
+                  <Truck size={15} />
+                  <span>RESOURCES</span>
+                  {resourceSummary.deployed > 0 && <span className="nav-badge deployed-badge">{resourceSummary.deployed}</span>}
+                </button>
 
-              {/* ==================================================
-                  INCIDENT RESULTS
-              ================================================== */}
+                <button
+                  className={`nav-item ${activeTab === "map" ? "active" : ""}`}
+                  onClick={() => setActiveTab("map")}
+                >
+                  <Map size={15} />
+                  <span>CAMPUS MAP</span>
+                </button>
 
-              {incidentData && (
+                <button
+                  className={`nav-item ${activeTab === "ai-intel" ? "active" : ""}`}
+                  onClick={() => setActiveTab("ai-intel")}
+                >
+                  <Cpu size={15} />
+                  <span>AI INTELLIGENCE</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "alerts" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("alerts"); loadAlerts(); }}
+                >
+                  <Radio size={15} />
+                  <span>DISPATCH ALERTS</span>
+                  {alerts.length > 0 && <span className="nav-badge">{alerts.length}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "audit" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("audit"); loadAuditTrail(); }}
+                >
+                  <Activity size={15} />
+                  <span>AUDIT LOG</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className={`nav-item ${activeTab === "command" ? "active" : ""}`}
+                  onClick={() => setActiveTab("command")}
+                >
+                  <LayoutDashboard size={15} />
+                  <span>Dashboard</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "report" ? "active" : ""}`}
+                  onClick={() => setActiveTab("report")}
+                >
+                  <AlertTriangle size={15} className="text-red" />
+                  <span>Report Incident</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "incidents" ? "active" : ""}`}
+                  onClick={() => { setActiveTab("incidents"); loadIncidents(); }}
+                >
+                  <FileText size={15} />
+                  <span>Incidents</span>
+                  {incidents.length > 0 && <span className="nav-badge">{incidents.length}</span>}
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "map" ? "active" : ""}`}
+                  onClick={() => setActiveTab("map")}
+                >
+                  <Map size={15} />
+                  <span>Campus Map</span>
+                </button>
+
+                <button
+                  className={`nav-item ${activeTab === "ai-assistant" ? "active" : ""}`}
+                  onClick={() => setActiveTab("ai-assistant")}
+                >
+                  <Bot size={15} className="text-cyan" />
+                  <span>AI Assistant</span>
+                </button>
+              </>
+            )}
+          </nav>
+
+          <div className="sidebar-bottom-block">
+            <div className="telemetry-status-row">
+              <span className="telemetry-dot" />
+              <span>SYSTEM ONLINE</span>
+            </div>
+            <div className="sidebar-user-card">
+              <div className="user-avatar-tag">{isAdmin ? "EOC" : "STU"}</div>
+              <div className="user-details">
+                <strong>{studentName}</strong>
+                <small>{isAdmin ? "Campus Commander" : studentEmail || "Student Portal"}</small>
+              </div>
+            </div>
+            <button className="btn-sidebar-logout" onClick={handleLogout}>
+              <LogOut size={13} />
+              <span>TERMINATE SESSION</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* MAIN WORKSPACE */}
+        <div className="aegis-main-workspace">
+          {/* TOP OPERATIONAL HEADER */}
+          <header className="ops-system-header">
+            <div className="system-identity">
+              <div className="system-status-indicator">
+                <span className={`live-sentinel-dot ${hasActiveEmergency ? "sentinel-red" : ""}`} />
+                <span className="system-tag">
+                  {isAdmin
+                    ? "VIGNAN UNIVERSITY • EMERGENCY OPERATIONS CENTER"
+                    : "AEGISCAMPUS • CAMPUS SAFETY INTELLIGENCE"}
+                </span>
+              </div>
+              <div className="clock-telemetry font-mono">{currentTime} IST</div>
+            </div>
+
+            {/* OPERATIONAL METRICS RIBBON */}
+            <div className="ops-status-ribbon">
+              {isAdmin ? (
                 <>
-                  <section className="incident-banner">
-                    <div className="incident-main">
-                      <div className="incident-icon">
-                        <Flame size={28} />
-                      </div>
+                  <div className={`ops-ribbon-metric ${incidents.filter((i) => i.status === "ACTIVE").length > 0 ? "metric-active" : ""}`}>
+                    <span className="r-val">{incidents.filter((i) => i.status === "ACTIVE").length}</span>
+                    <span className="r-label">ACTIVE INCIDENTS</span>
+                  </div>
+                  <div className={`ops-ribbon-metric ${pendingApprovalsCount > 0 ? "metric-amber" : ""}`}>
+                    <span className="r-val">{pendingApprovalsCount}</span>
+                    <span className="r-label">PENDING APPROVALS</span>
+                  </div>
+                  <div className="ops-ribbon-metric">
+                    <span className="r-val">{resourceSummary.deployed} / {resourceSummary.total}</span>
+                    <span className="r-label">DEPLOYED</span>
+                  </div>
+                  <div className="ops-ribbon-metric">
+                    <span className="r-val">{resourceSummary.available}</span>
+                    <span className="r-label">AVAILABLE</span>
+                  </div>
+                </>
+              ) : (
+                <div className={`student-status-badge ${hasActiveEmergency ? "badge-emergency" : "badge-normal"}`}>
+                  <span className="s-dot" />
+                  <span>CAMPUS STATUS: {hasActiveEmergency ? "EMERGENCY ACTIVE" : "NORMAL"}</span>
+                </div>
+              )}
 
-                      <div>
-                        <div className="incident-label">
-                          INCIDENT DETECTED
-                        </div>
+              <button className="btn-ops-refresh" onClick={() => { loadResources(); loadResourceSummary(); loadIncidents(); if (isAdmin) { loadApprovals(); loadAlerts(); } }} title="Sync State">
+                <RefreshCw size={13} />
+              </button>
+            </div>
+          </header>
 
-                        <h2>
-                          {incident?.incident_type ||
-                            "Unknown Incident"}
-                        </h2>
+          {/* MAIN PAGE CONTENT */}
+          <main className="ops-workspace-content">
+            {/* ======================================================
+                1. STUDENT DASHBOARD (COMPANION VIEW)
+                ====================================================== */}
+            {!isAdmin && activeTab === "command" && (
+              <div className="student-companion-layout">
+                {/* HERO WELCOME STRIP */}
+                <div className="student-hero-banner">
+                  <div className="hero-text-block">
+                    <h2>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, {studentName}</h2>
+                    <p>Your campus safety network is active and monitoring all sectors.</p>
+                  </div>
+                  <div className="hero-status-pills">
+                    <span className="hero-status-chip"><span className="c-dot green" /> CAMPUS MONITORING ACTIVE</span>
+                    <span className="hero-status-chip"><span className="c-dot green" /> EMERGENCY NETWORK ONLINE</span>
+                  </div>
+                </div>
 
-                        <p>
-                          {incident?.summary}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="critical-badge">
-                      <span className="critical-dot" />
-
-                      {incident?.severity ||
-                        "UNKNOWN"}
-                    </div>
-                  </section>
-
-                  <section className="stats-grid">
-                    <div className="stat-card">
-                      <div className="stat-icon red">
-                        <AlertTriangle
-                          size={20}
-                        />
-                      </div>
-
-                      <div>
-                        <span>
-                          SEVERITY
-                        </span>
-
-                        <strong>
-                          {incident?.severity}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="stat-card">
-                      <div className="stat-icon orange">
-                        <Users size={20} />
-                      </div>
-
-                      <div>
-                        <span>
-                          AFFECTED PEOPLE
-                        </span>
-
-                        <strong>
-                          {incident?.affected_people ??
-                            0}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="stat-card">
-                      <div className="stat-icon cyan">
-                        <Map size={20} />
-                      </div>
-
-                      <div>
-                        <span>
-                          LOCATION
-                        </span>
-
-                        <strong>
-                          {incident?.location}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="stat-card">
-                      <div className="stat-icon green">
-                        <CheckCircle2
-                          size={20}
-                        />
-                      </div>
-
-                      <div>
-                        <span>
-                          AI CONFIDENCE
-                        </span>
-
-                        <strong>
-                          {incident?.confidence}%
-                        </strong>
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* ==================================================
-                      MULTI AGENT RESPONSE
-                  ================================================== */}
-
-                  <section className="panel">
-                    <div className="panel-heading">
-                      <div>
-                        <h2>
-                          Multi-Agent Response
-                        </h2>
-
-                        <p>
-                          Specialized AI agents
-                          activated for this
-                          incident.
-                        </p>
-                      </div>
-
-                      <div className="agent-count">
-                        {
-                          Object.keys(
-                            agentResponses
-                          ).length
-                        }{" "}
-                        / 5 ACTIVE
-                      </div>
-                    </div>
-
-                    <div className="agent-grid">
-                      {[
-                        "security",
-                        "medical",
-                        "facilities",
-                        "transport",
-                        "communication",
-                      ].map(
-                        (agentName) => {
-                          const Icon =
-                            agentIcons[
-                              agentName
-                            ];
-
-                          const agent =
-                            agentResponses[
-                              agentName
-                            ];
-
-                          return (
-                            <div
-                              className={`agent-card ${
-                                agent
-                                  ? "agent-active"
-                                  : "agent-error"
-                              }`}
-                              key={
-                                agentName
-                              }
-                            >
-                              <div className="agent-top">
-                                <div className="agent-icon">
-                                  <Icon
-                                    size={20}
-                                  />
-                                </div>
-
-                                <span className="agent-status">
-                                  {agent
-                                    ? "COMPLETED"
-                                    : "ERROR"}
-                                </span>
-                              </div>
-
-                              <h3>
-                                {agentName
-                                  .charAt(
-                                    0
-                                  )
-                                  .toUpperCase() +
-                                  agentName.slice(
-                                    1
-                                  )}
-                              </h3>
-
-                              <p>
-                                {agent
-                                  ? `${
-                                      agent
-                                        .selected_resources
-                                        ?.length ||
-                                      0
-                                    } resources selected`
-                                  : "Agent unavailable"}
-                              </p>
-                            </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  </section>
-
-                  {/* ==================================================
-                      RESOURCES + APPROVAL
-                  ================================================== */}
-
-                  <section className="two-column">
-                    <div className="panel">
-                      <div className="panel-heading">
+                {/* ACTIVE EMERGENCY / EVACUATION GUIDANCE (DOMINANT IF ACTIVE) */}
+                {hasActiveEmergency && activeIncident && (
+                  <div className="student-active-emergency-card">
+                    <div className="card-alert-header">
+                      <div className="header-hazard-title">
+                        <Flame size={20} className="text-red" />
                         <div>
-                          <h2>
-                            Selected Resources
-                          </h2>
+                          <h3>ACTIVE EMERGENCY: {activeIncident.incident_type?.toUpperCase()} AT {activeIncident.location}</h3>
+                          <span className="meta-sub">Reported at {new Date(activeIncident.created_at).toLocaleTimeString()} • Severity: {activeIncident.severity}</span>
+                        </div>
+                      </div>
+                      <span className={`status-tag status-${(activeIncident.status || "pending").toLowerCase()}`}>
+                        {activeIncident.status}
+                      </span>
+                    </div>
 
-                          <p>
-                            Resources recommended
-                            by the AI agents.
+                    <div className="guidance-grid-split">
+                      <div className="guidance-text-pane">
+                        <div className="evac-instruction-box">
+                          <h4>🛡️ EVACUATION GUIDANCE</h4>
+                          <p className="evac-primary-target">
+                            Primary Safe Area: <strong>Convocation Hall (Safe Shelter)</strong> or <strong>Playground (Safe Zone Alpha)</strong>
                           </p>
+                          <ul className="evac-steps-list">
+                            <li>1. Stay calm. Avoid {activeIncident.location} and adjacent corridors.</li>
+                            <li>2. Follow the illuminated green pathway on the map below toward safety.</li>
+                            <li>3. If injured or assisting someone, notify emergency marshals at Convocation Hall.</li>
+                          </ul>
                         </div>
 
-                        <div className="resource-total">
-                          {response
-                            ?.selected_resources
-                            ?.length || 0}
-                        </div>
-                      </div>
-
-                      <div className="resource-list">
-                        {(
-                          response?.selected_resources ||
-                          []
-                        ).map(
-                          (resourceId) => {
-                            const isDeployed =
-                              deployedResources.includes(
-                                resourceId
-                              );
-
-                            return (
-                              <div
-                                className="resource-row"
-                                key={
-                                  resourceId
-                                }
-                              >
-                                <div className="resource-symbol">
-                                  <CheckCircle2
-                                    size={17}
-                                  />
-                                </div>
-
-                                <span>
-                                  {
-                                    resourceId
-                                  }
-                                </span>
-
-                                <span
-                                  className={
-                                    isDeployed
-                                      ? "available deployed"
-                                      : "available"
-                                  }
-                                >
-                                  {isDeployed
-                                    ? "DEPLOYED"
-                                    : "AVAILABLE"}
-                                </span>
-                              </div>
-                            );
-                          }
-                        )}
-                      </div>
-                    </div>
-
-                    <div
-                      className={`approval-panel ${
-                        isApproved
-                          ? "approval-approved"
-                          : isRejected
-                          ? "approval-rejected"
-                          : ""
-                      }`}
-                    >
-                      <div className="approval-icon">
-                        {isApproved ? (
-                          <CheckCircle2
-                            size={25}
-                          />
-                        ) : isRejected ? (
-                          <XCircle
-                            size={25}
-                          />
-                        ) : (
-                          <Shield
-                            size={25}
-                          />
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="approval-label">
-                          HUMAN APPROVAL
-                        </div>
-
-                        <h2>
-                          {approvalStatus}
-                        </h2>
-
-                        <p>
-                          {isApproved
-                            ? `Approved by ${
-                                currentApproval?.approved_by ||
-                                "Campus Emergency Commander"
-                              }. Emergency response actions are authorized.`
-                            : isRejected
-                            ? `Rejected by ${
-                                currentApproval?.rejected_by ||
-                                "Campus Emergency Commander"
-                              }.`
-                            : "High-impact emergency actions require authorization from an emergency commander."}
-                        </p>
-                      </div>
-
-                      {isAdmin &&
-                        isPending && (
-                          <>
-                            <button
-                              className="approve-button"
-                              onClick={
-                                approveResponse
-                              }
-                              disabled={
-                                approvalLoading
-                              }
-                            >
-                              {approvalLoading ? (
-                                <>
-                                  <span className="spinner" />
-                                  Processing...
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2
-                                    size={17}
-                                  />
-                                  Approve
-                                  Response
-                                </>
-                              )}
-                            </button>
-
-                            <button
-                              className="reject-button"
-                              onClick={() =>
-                                setShowRejectBox(
-                                  (previous) =>
-                                    !previous
-                                )
-                              }
-                              disabled={
-                                approvalLoading
-                              }
-                            >
-                              <XCircle
-                                size={17}
-                              />
-
-                              Reject
-                              Response
-                            </button>
-
-                            {showRejectBox && (
-                              <div className="reject-box">
-                                <label>
-                                  REJECTION
-                                  REASON
-                                </label>
-
-                                <textarea
-                                  value={
-                                    rejectionReason
-                                  }
-                                  onChange={(
-                                    event
-                                  ) =>
-                                    setRejectionReason(
-                                      event
-                                        .target
-                                        .value
-                                    )
-                                  }
-                                  placeholder="Explain why this response plan should be rejected..."
-                                  rows={3}
-                                />
-
-                                <button
-                                  className="confirm-reject-button"
-                                  onClick={
-                                    rejectResponse
-                                  }
-                                  disabled={
-                                    approvalLoading
-                                  }
-                                >
-                                  Confirm
-                                  Rejection
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
-
-                      {isApproved && (
-                        <div className="approval-success">
-                          <CheckCircle2
-                            size={16}
-                          />
-
-                          RESPONSE
-                          AUTHORIZED
-                        </div>
-                      )}
-
-                      {isRejected && (
-                        <div className="approval-failure">
-                          <XCircle
-                            size={16}
-                          />
-
-                          RESPONSE
-                          REJECTED
-                        </div>
-                      )}
-
-                      {approvalError && (
-                        <div className="approval-error">
-                          <AlertTriangle
-                            size={15}
-                          />
-
-                          {approvalError}
-                        </div>
-                      )}
-                    </div>
-                  </section>
-
-                  {/* ==================================================
-                      COMMUNICATION ALERT
-                  ================================================== */}
-
-                  {agentResponses
-                    .communication
-                    ?.alert_required && (
-                    <section className="alert-panel">
-                      <div className="alert-header">
-                        <div className="alert-icon">
-                          <Bell size={21} />
-                        </div>
-
-                        <div>
-                          <span>
-                            EMERGENCY ALERT
-                          </span>
-
-                          <h2>
-                            Communication Agent
-                            Recommendation
-                          </h2>
-                        </div>
-                      </div>
-
-                      <div className="alert-message">
-                        {
-                          agentResponses
-                            .communication
-                            .alert_message
-                        }
-                      </div>
-
-                      <div className="alert-audience">
-                        {(
-                          agentResponses
-                            .communication
-                            .audience || []
-                        ).map(
-                          (aud) => (
-                            <span
-                              key={aud}
-                            >
-                              {aud}
-                            </span>
-                          )
-                        )}
-                      </div>
-                    </section>
-                  )}
-
-                  {/* ==================================================
-                      RECOMMENDED ACTIONS
-                  ================================================== */}
-
-                  <section className="panel">
-                    <div className="panel-heading">
-                      <div>
-                        <h2>
-                          Recommended Actions
-                        </h2>
-
-                        <p>
-                          Combined recommendations
-                          from all active agents.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="actions-grid">
-                      {(
-                        response?.recommended_actions ||
-                        []
-                      ).map(
-                        (
-                          action,
-                          index
-                        ) => (
-                          <div
-                            className="action-row"
-                            key={`${action}-${index}`}
-                          >
-                            <span className="action-number">
-                              {String(
-                                index + 1
-                              ).padStart(
-                                2,
-                                "0"
-                              )}
-                            </span>
-
-                            <span>
-                              {action}
-                            </span>
+                        {activeIncident.image_data && (
+                          <div className="incident-evidence-preview">
+                            <span className="lbl-sm">INCIDENT PHOTOGRAPH:</span>
+                            <img
+                              src={activeIncident.image_data}
+                              alt="Incident Evidence"
+                              className="student-evidence-thumb"
+                              onClick={() => setSelectedIncidentModal(activeIncident)}
+                            />
                           </div>
-                        )
-                      )}
-                    </div>
-                  </section>
-
-                  {/* ==================================================
-                      INCIDENT AUDIT
-                  ================================================== */}
-
-                  <section className="panel">
-                    <div className="panel-heading">
-                      <div>
-                        <h2>
-                          Audit Trail
-                        </h2>
-
-                        <p>
-                          Recorded emergency
-                          workflow events.
-                        </p>
+                        )}
                       </div>
 
-                      <ClipboardList
-                        size={21}
+                      <div className="guidance-map-pane">
+                        <CampusMap
+                          incidentLocation={activeIncident.location || ""}
+                          deployedResources={deployedResourceIds}
+                          activeIncident={activeIncident}
+                          isStudentView={true}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TWO-COLUMN WORKSPACE: QUICK REPORT & AI ASSISTANT ENTRY */}
+                <div className="student-action-grid">
+                  {/* PROMINENT EMERGENCY REPORT CARD */}
+                  <div className="student-report-card ops-panel">
+                    <div className="ops-panel-header header-red-accent">
+                      <div className="flex-row-center">
+                        <AlertTriangle size={16} className="text-red" />
+                        <h3>REPORT AN EMERGENCY</h3>
+                      </div>
+                      <span className="panel-status-sub">IMMEDIATE INTAKE</span>
+                    </div>
+
+                    <form onSubmit={handleReportEmergency} className="ops-form-stacked">
+                      {reportError && <div className="form-alert-error">{reportError}</div>}
+                      {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
+
+                      <div className="form-field">
+                        <label>INCIDENT LOCATION *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. N Block, Library, Pharmacy Block..."
+                          value={location}
+                          onChange={(e) => setLocation(e.target.value)}
+                          required
+                        />
+
+                        <div className="quick-chip-selector">
+                          <span className="selector-title">QUICK SELECT:</span>
+                          {QUICK_LOCATIONS.map((loc) => (
+                            <button
+                              key={loc}
+                              type="button"
+                              className={`location-btn-chip ${location === loc ? "active" : ""}`}
+                              onClick={() => setLocation(loc)}
+                            >
+                              {loc}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="form-field">
+                        <div className="field-label-split">
+                          <label>EMERGENCY DESCRIPTION *</label>
+                          <button
+                            type="button"
+                            className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
+                            onClick={toggleVoiceInput}
+                          >
+                            {isListening ? <MicOff size={11} /> : <Mic size={11} />}
+                            <span>{isListening ? "RECORDING..." : "VOICE INPUT"}</span>
+                          </button>
+                        </div>
+
+                        <textarea
+                          rows={3}
+                          placeholder="Describe what is occurring (e.g. Fire in lab, injured student, electrical spark...)"
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-field">
+                        <label>ATTACH PHOTOGRAPH (EVIDENCE)</label>
+                        {imagePreview ? (
+                          <div className="evidence-staged-box">
+                            <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                            <button type="button" className="btn-remove-evidence" onClick={removeImage}>
+                              <X size={12} /> Remove
+                            </button>
+                          </div>
+                        ) : (
+                          <label htmlFor="incident-image-input" className="evidence-drop-trigger">
+                            <ImageIcon size={15} />
+                            <span>Attach Photo Evidence (PNG/JPG Max 5MB)</span>
+                          </label>
+                        )}
+                        <input
+                          id="incident-image-input"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageChange}
+                          style={{ display: "none" }}
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="btn-transmit-emergency"
+                        disabled={reportLoading}
+                      >
+                        {reportLoading ? "TRANSMITTING REPORT..." : "TRANSMIT EMERGENCY REPORT →"}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* RIGHT COLUMN: ASK AEGIS AI & RECENT INCIDENTS */}
+                  <div className="student-companion-secondary">
+                    {/* ASK AEGIS AI CARD */}
+                    <div className="ops-panel ask-ai-card">
+                      <div className="ops-panel-header">
+                        <div className="flex-row-center">
+                          <Bot size={16} className="text-cyan" />
+                          <h3>ASK AEGIS AI</h3>
+                        </div>
+                        <span className="panel-status-sub">24/7 SAFETY ASSISTANT</span>
+                      </div>
+
+                      <div className="ask-ai-body">
+                        <p className="ai-intro-text">
+                          Instant emergency guidance, nearest evacuation points, and campus medical protocols.
+                        </p>
+
+                        <div className="ai-quick-chips">
+                          {STUDENT_AI_PROMPTS.map((prompt, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="ai-prompt-chip"
+                              onClick={() => {
+                                setActiveTab("ai-assistant");
+                                handleSendAiPrompt(prompt);
+                              }}
+                            >
+                              <Sparkles size={11} className="text-cyan" />
+                              <span>{prompt}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-open-ai-chat"
+                          onClick={() => setActiveTab("ai-assistant")}
+                        >
+                          <MessageSquare size={13} />
+                          <span>Open Live Safety Assistant</span>
+                          <ArrowRight size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* RECENT SUBMITTED INCIDENTS PREVIEW */}
+                    <div className="ops-panel recent-incidents-card">
+                      <div className="ops-panel-header">
+                        <h3>MY RECENT INCIDENT LOGS</h3>
+                        <button className="link-see-all" onClick={() => setActiveTab("incidents")}>
+                          View All ({incidents.length})
+                        </button>
+                      </div>
+
+                      <div className="recent-list-body">
+                        {incidents.length === 0 ? (
+                          <div className="empty-sub-note">No submitted incidents. Campus is secure.</div>
+                        ) : (
+                          incidents.slice(0, 3).map((inc) => (
+                            <div
+                              key={inc.incident_id}
+                              className="incident-mini-row"
+                              onClick={() => setSelectedIncidentModal(inc)}
+                            >
+                              <div className="mini-row-info">
+                                <strong>{inc.incident_type} — {inc.location}</strong>
+                                <small>{new Date(inc.created_at).toLocaleDateString()} • {inc.severity} Severity</small>
+                              </div>
+                              <span className={`status-tag status-${(inc.status || "pending").toLowerCase()}`}>
+                                {inc.status}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                2. STUDENT DEDICATED REPORT INCIDENT TAB
+                ====================================================== */}
+            {!isAdmin && activeTab === "report" && (
+              <div className="student-report-tab-view">
+                <div className="ops-panel full-report-panel">
+                  <div className="ops-panel-header header-red-accent">
+                    <div className="flex-row-center">
+                      <AlertTriangle size={18} className="text-red" />
+                      <h2>OFFICIAL CAMPUS EMERGENCY REPORT</h2>
+                    </div>
+                    <span className="panel-status-sub">DIRECT EOC DISPATCH INTAKE</span>
+                  </div>
+
+                  <form onSubmit={handleReportEmergency} className="ops-form-stacked form-spacious">
+                    {reportError && <div className="form-alert-error">{reportError}</div>}
+                    {reportSuccess && <div className="form-alert-success">{reportSuccess}</div>}
+
+                    <div className="form-field">
+                      <label>CAMPUS LOCATION *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. N Block, Pharmacy Block, Library..."
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        required
+                      />
+
+                      <div className="quick-chip-selector">
+                        <span className="selector-title">QUICK SELECT:</span>
+                        {QUICK_LOCATIONS.map((loc) => (
+                          <button
+                            key={loc}
+                            type="button"
+                            className={`location-btn-chip ${location === loc ? "active" : ""}`}
+                            onClick={() => setLocation(loc)}
+                          >
+                            {loc}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="form-field">
+                      <div className="field-label-split">
+                        <label>INCIDENT DESCRIPTION *</label>
+                        <button
+                          type="button"
+                          className={`btn-speech-toggle ${isListening ? "listening" : ""}`}
+                          onClick={toggleVoiceInput}
+                        >
+                          {isListening ? <MicOff size={12} /> : <Mic size={12} />}
+                          <span>{isListening ? "RECORDING..." : "VOICE INPUT"}</span>
+                        </button>
+                      </div>
+
+                      <textarea
+                        rows={4}
+                        placeholder="Provide exact details: nature of emergency, casualties, floor, room number..."
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        required
                       />
                     </div>
 
-                    <div className="audit-list">
-                      {(
-                        incidentData.audit_events ||
-                        []
-                      ).map(
-                        (event) => (
-                          <div
-                            className="audit-row"
-                            key={
-                              event.event_id
-                            }
-                          >
-                            <div className="audit-dot" />
-
-                            <div className="audit-content">
-                              <strong>
-                                {
-                                  event.event_type
-                                }
-                              </strong>
-
-                              <p>
-                                {
-                                  event.message
-                                }
-                              </p>
-                            </div>
-
-                            <span className="audit-actor">
-                              {
-                                event.actor
-                              }
-                            </span>
-                          </div>
-                        )
+                    <div className="form-field">
+                      <label>PHOTOGRAPHIC EVIDENCE</label>
+                      {imagePreview ? (
+                        <div className="evidence-staged-box">
+                          <img src={imagePreview} alt="Staged Evidence" className="staged-thumb" />
+                          <button type="button" className="btn-remove-evidence" onClick={removeImage}>
+                            <X size={12} /> Remove Evidence
+                          </button>
+                        </div>
+                      ) : (
+                        <label htmlFor="incident-image-input-tab" className="evidence-drop-trigger">
+                          <ImageIcon size={18} />
+                          <span>Attach Incident Photograph (PNG/JPG Max 5MB)</span>
+                        </label>
                       )}
+                      <input
+                        id="incident-image-input-tab"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        style={{ display: "none" }}
+                      />
                     </div>
-                  </section>
-                </>
-              )}
 
-              {/* ==================================================
-                  EMPTY COMMAND CENTER
-              ================================================== */}
+                    <button
+                      type="submit"
+                      className="btn-transmit-emergency btn-large"
+                      disabled={reportLoading}
+                    >
+                      {reportLoading ? "TRANSMITTING TO COMMAND CENTER..." : "TRANSMIT EMERGENCY REPORT"}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
 
-              {!incidentData && (
-                <section className="empty-state">
-                  <div className="empty-icon">
-                    <Radio size={30} />
+            {/* ======================================================
+                3. AI ASSISTANT TAB (STUDENT & ADMIN)
+                ====================================================== */}
+            {activeTab === "ai-assistant" && (
+              <div className="ops-panel ai-chat-container">
+                <div className="ops-panel-header">
+                  <div className="flex-row-center">
+                    <Bot size={18} className="text-cyan" />
+                    <h2>AEGIS AI EMERGENCY COPILOT</h2>
                   </div>
+                  <span className="panel-status-sub">GROQ AI INTELLIGENCE ACTIVE</span>
+                </div>
 
-                  <h2>
-                    Command Center Ready
-                  </h2>
-
-                  <p>
-                    Submit an emergency incident
-                    above to activate the
-                    AegisCampus multi-agent
-                    response system.
-                  </p>
-
-                  <div className="empty-agents">
+                {hasActiveEmergency && activeIncident && (
+                  <div className="ai-active-incident-brief">
+                    <AlertTriangle size={14} className="text-amber" />
                     <span>
-                      Security
-                    </span>
-
-                    <span>
-                      Medical
-                    </span>
-
-                    <span>
-                      Facilities
-                    </span>
-
-                    <span>
-                      Transport
-                    </span>
-
-                    <span>
-                      Communication
+                      ACTIVE INCIDENT DETECTED: <strong>{activeIncident.incident_type} at {activeIncident.location}</strong>. Immediate Evacuation Destination: <strong>Convocation Hall / Playground</strong>.
                     </span>
                   </div>
-                </section>
-              )}
-            </>
-          )}
+                )}
+
+                <div className="ai-chat-stream">
+                  {aiChatHistory.map((msg, idx) => (
+                    <div key={idx} className={`ai-message-row ${msg.sender === "user" ? "msg-user" : "msg-ai"}`}>
+                      <div className="msg-avatar">{msg.sender === "user" ? "YOU" : "AI"}</div>
+                      <div className="msg-bubble">
+                        <p>{msg.text}</p>
+                        <span className="msg-time">{msg.timestamp}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {aiQueryLoading && (
+                    <div className="ai-message-row msg-ai">
+                      <div className="msg-avatar">AI</div>
+                      <div className="msg-bubble"><span className="glass-spinner" /> ANALYZING INCIDENT & PROTOCOLS...</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="ai-prompts-bar-footer">
+                  <span className="prompt-label-hint">QUICK PROMPTS:</span>
+                  {(isAdmin ? ADMIN_AI_PROMPTS : STUDENT_AI_PROMPTS).map((p, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="mini-prompt-chip"
+                      onClick={() => handleSendAiPrompt(p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="ai-input-bar">
+                  <input
+                    type="text"
+                    placeholder="Ask Aegis AI Copilot (e.g. 'Where is the nearest safe zone from Library?')..."
+                    value={aiQuery}
+                    onChange={(e) => setAiQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSendAiPrompt(); }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-ops-primary"
+                    onClick={() => handleSendAiPrompt()}
+                    disabled={aiQueryLoading || !aiQuery.trim()}
+                  >
+                    <Send size={13} />
+                    <span>Send</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                4. ADMIN COMMAND CENTER DASHBOARD
+                ====================================================== */}
+            {isAdmin && activeTab === "command" && (
+              <div className="ops-command-flow">
+                {/* ACTIVE EMERGENCY DOMINANT PANEL (IF INCIDENT ACTIVE) */}
+                {hasActiveEmergency && activeIncident && (
+                  <div className="active-incident-dominant-bar">
+                    <div className="bar-hazard-strip">
+                      <div className="bar-title-block">
+                        <Flame size={20} className="text-red" />
+                        <div>
+                          <h3>ACTIVE EMERGENCY: {activeIncident.incident_type?.toUpperCase()} — {activeIncident.location}</h3>
+                          <span className="meta-sub">Reported at {new Date(activeIncident.created_at).toLocaleTimeString()} by {activeIncident.student_name}</span>
+                        </div>
+                      </div>
+                      <div className="bar-actions-block">
+                        <span className="sev-tag sev-critical">CRITICAL SEVERITY</span>
+                        <button
+                          className="btn-ops-resolve-direct"
+                          onClick={() => handleResolveIncident(activeIncident.incident_id)}
+                        >
+                          Mark as Resolved
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bar-details-grid">
+                      <div className="b-field">
+                        <span className="b-lbl">SITUATION ASSESSMENT & AI TRIAGE:</span>
+                        <p>{activeIncident.summary || activeIncident.description}</p>
+                      </div>
+                      {activeIncident.image_data && (
+                        <div className="b-evidence">
+                          <span className="b-lbl">EVIDENCE PHOTO:</span>
+                          <img
+                            src={activeIncident.image_data}
+                            alt="Incident Evidence"
+                            className="b-evidence-thumb"
+                            onClick={() => setSelectedIncidentModal(activeIncident)}
+                          />
+                        </div>
+                      )}
+                      <div className="b-field">
+                        <span className="b-lbl">DEPLOYED UNITS:</span>
+                        <div className="unit-tags-row">
+                          {activeIncident.deployed_resources?.length > 0 ? (
+                            activeIncident.deployed_resources.map((u) => (
+                              <span key={u} className="unit-tag-pill">🚨 {u}</span>
+                            ))
+                          ) : (
+                            <span className="col-val text-gray">Awaiting authorization</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PENDING APPROVAL ALERT BANNER */}
+                {pendingApprovalsCount > 0 && (
+                  <div className="ops-alert-banner-bar">
+                    <div className="banner-text">
+                      <AlertOctagon size={16} className="text-red" />
+                      <span>
+                        <strong>{pendingApprovalsCount} Emergency Response Plan(s)</strong> awaiting commander approval and responder dispatch.
+                      </span>
+                    </div>
+                    <button className="btn-ops-action-urgent" onClick={() => setActiveTab("approvals")}>
+                      Review Approvals <ChevronRight size={13} />
+                    </button>
+                  </div>
+                )}
+
+                {/* PRIMARY COMMAND MAP VIEWPORT */}
+                <div className="admin-map-workspace">
+                  <CampusMap
+                    incidentLocation={activeIncident?.location || ""}
+                    deployedResources={deployedResourceIds}
+                    activeIncident={activeIncident}
+                    isStudentView={false}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                5. STANDALONE FULLSCREEN CAMPUS MAP (STUDENT & ADMIN)
+                ====================================================== */}
+            {activeTab === "map" && (
+              <div className="ops-fullscreen-map-wrap">
+                <CampusMap
+                  incidentLocation={activeIncident?.location || ""}
+                  deployedResources={deployedResourceIds}
+                  activeIncident={activeIncident}
+                  isStudentView={!isAdmin}
+                />
+              </div>
+            )}
+
+            {/* ======================================================
+                6. APPROVALS QUEUE (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "approvals" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>EMERGENCY RESPONSE APPROVAL QUEUE</h2>
+                    <span className="sub-title">Review AI orchestrated response plans prior to responder dispatch</span>
+                  </div>
+                  <button className="btn-ops-secondary" onClick={loadApprovals}>
+                    <RefreshCw size={12} /> Refresh Queue
+                  </button>
+                </div>
+
+                {approvalsLoading ? (
+                  <div className="ops-loading-box">Loading approval queue...</div>
+                ) : approvals.length === 0 ? (
+                  <div className="ops-empty-box">All response plans have been reviewed. No pending approvals.</div>
+                ) : (
+                  <div className="approvals-ops-list">
+                    {approvals.map((appr) => (
+                      <div key={appr.approval_id} className={`approval-ops-card status-${(appr.status || "pending").toLowerCase()}`}>
+                        <div className="card-top-row">
+                          <div>
+                            <span className="approval-code">{appr.approval_id}</span>
+                            <span className="incident-ref">INCIDENT: <strong>{appr.incident_id}</strong></span>
+                          </div>
+                          <span className={`status-tag status-${(appr.status || "pending").toLowerCase()}`}>
+                            {appr.status}
+                          </span>
+                        </div>
+
+                        <div className="card-data-body">
+                          <div className="data-col">
+                            <span className="col-lbl">REQUESTED AT:</span>
+                            <span className="col-val">{new Date(appr.requested_at).toLocaleString()}</span>
+                          </div>
+                          <div className="data-col">
+                            <span className="col-lbl">RECOMMENDED DISPATCH UNITS:</span>
+                            <div className="unit-tags-row">
+                              {appr.selected_resources?.length > 0 ? (
+                                appr.selected_resources.map((u) => (
+                                  <span key={u} className="unit-tag-pill">🚨 {u}</span>
+                                ))
+                              ) : (
+                                <span className="col-val text-gray">None specified</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="data-col full-col">
+                            <span className="col-lbl">RECOMMENDED PROTOCOL:</span>
+                            <ul className="actions-bullet-list">
+                              {appr.recommended_actions?.slice(0, 3).map((a, i) => (
+                                <li key={i}>{a}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {appr.status === "PENDING" && (
+                          <div className="card-actions-bar">
+                            <button className="btn-ops-reject" onClick={() => handleRejectPlan(appr.approval_id)}>
+                              Reject Plan
+                            </button>
+                            <button className="btn-ops-approve" onClick={() => handleApprovePlan(appr.approval_id)}>
+                              Approve & Dispatch Units
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================
+                7. FLEET MANAGEMENT & DEPLOYMENT LIFECYCLE (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "resources" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>CAMPUS EMERGENCY RESOURCE FLEET</h2>
+                    <span className="sub-title">Real-time status, responder contacts, and deployment lifecycle</span>
+                  </div>
+                  <div className="btn-row">
+                    <button className="btn-ops-secondary text-amber" onClick={handleReleaseAllDeployed}>
+                      Release All Deployed
+                    </button>
+                    <button className="btn-ops-primary" onClick={openAddResource}>
+                      <Plus size={13} /> Register New Unit
+                    </button>
+                    <button className="btn-ops-secondary" onClick={loadResources}>
+                      <RefreshCw size={12} /> Sync Fleet
+                    </button>
+                  </div>
+                </div>
+
+                {/* FILTER STRIP */}
+                <div className="fleet-filter-strip">
+                  {["ALL", "Security", "Medical", "First Aid", "Facilities", "Transport", "Communication", "AVAILABLE", "DEPLOYED"].map((f) => (
+                    <button
+                      key={f}
+                      className={`fleet-filter-btn ${resourceFilter === f ? "active" : ""}`}
+                      onClick={() => setResourceFilter(f)}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+
+                {/* OPERATIONAL FLEET TABLE */}
+                <div className="ops-table-container">
+                  <table className="ops-data-table">
+                    <thead>
+                      <tr>
+                        <th>UNIT ID</th>
+                        <th>DESIGNATION</th>
+                        <th>TYPE</th>
+                        <th>STATUS</th>
+                        <th>BASE STATION</th>
+                        <th>RESPONDER IN-CHARGE</th>
+                        <th>PHONE</th>
+                        <th>VEHICLE REG</th>
+                        <th>ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredResources.map((res) => {
+                        const isDeployed = res.status === "DEPLOYED";
+                        return (
+                          <tr key={res.id} className={isDeployed ? "row-deployed" : ""}>
+                            <td className="font-mono font-bold">{res.id}</td>
+                            <td>{res.name}</td>
+                            <td><span className="type-badge-sm">{res.type}</span></td>
+                            <td>
+                              <span className={`status-tag status-${res.status.toLowerCase()}`}>
+                                {res.status}
+                              </span>
+                            </td>
+                            <td>{res.location}</td>
+                            <td>{res.contact_name || "—"}</td>
+                            <td className="font-mono">{res.phone_number || "—"}</td>
+                            <td className="font-mono">{res.vehicle_number || "—"}</td>
+                            <td>
+                              <div className="table-btn-actions">
+                                {isDeployed ? (
+                                  <button
+                                    className="btn-table-revoke"
+                                    onClick={() => handleRevokeResource(res.id, res.incident_id)}
+                                  >
+                                    Revoke
+                                  </button>
+                                ) : res.status === "AVAILABLE" ? (
+                                  <button
+                                    className="btn-table-deploy"
+                                    onClick={() => handleDeployResourceDirect(res.id)}
+                                  >
+                                    Deploy
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="btn-table-edit"
+                                  onClick={() => openEditResource(res)}
+                                  title="Edit Unit"
+                                >
+                                  <Wrench size={12} />
+                                </button>
+                                <button
+                                  className="btn-table-delete"
+                                  disabled={isDeployed}
+                                  onClick={() => handleDeleteResource(res.id)}
+                                  title="Delete Unit"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                8. INCIDENT ARCHIVE & REPOSITORY (STUDENT & ADMIN)
+                ====================================================== */}
+            {activeTab === "incidents" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>{isAdmin ? "CAMPUS INCIDENT ARCHIVE" : "MY SUBMITTED INCIDENT LOG"}</h2>
+                    <span className="sub-title">Historical emergency events, evidence repository, and response intelligence</span>
+                  </div>
+                  <div className="incident-archive-controls-row">
+                    <div className="incident-filter-pills">
+                      {["ALL", "ACTIVE", "PENDING", "APPROVED", "RESOLVED"].map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          className={`inc-filter-chip ${incidentFilterStatus === st ? "active" : ""}`}
+                          onClick={() => setIncidentFilterStatus(st)}
+                        >
+                          {st}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="search-filter-box">
+                      <Search size={13} className="text-gray" />
+                      <input
+                        type="text"
+                        placeholder="Search by ID, location, type..."
+                        value={incidentSearchQuery}
+                        onChange={(e) => setIncidentSearchQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {incidentsLoading ? (
+                  <div className="ops-loading-box">Loading incident repository...</div>
+                ) : filteredIncidents.length === 0 ? (
+                  <div className="ops-empty-box">No matching incident records found.</div>
+                ) : (
+                  <div className="ops-table-container">
+                    <table className="ops-data-table">
+                      <thead>
+                        <tr>
+                          <th>INCIDENT ID</th>
+                          <th>TIMESTAMP</th>
+                          <th>TYPE</th>
+                          <th>LOCATION</th>
+                          <th>SEVERITY</th>
+                          {isAdmin && <th>REPORTER</th>}
+                          <th>EVIDENCE</th>
+                          <th>STATUS</th>
+                          <th>ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredIncidents.map((inc) => (
+                          <tr key={inc.incident_id}>
+                            <td className="font-mono font-bold">{inc.incident_id}</td>
+                            <td className="font-mono text-gray">{new Date(inc.created_at).toLocaleString()}</td>
+                            <td>{inc.incident_type}</td>
+                            <td>{inc.location}</td>
+                            <td>
+                              <span className={`sev-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
+                                {inc.severity}
+                              </span>
+                            </td>
+                            {isAdmin && <td>{inc.student_name}</td>}
+                            <td>
+                              {inc.image_data ? (
+                                <img
+                                  src={inc.image_data}
+                                  alt="Evidence"
+                                  className="evidence-table-thumb"
+                                  onClick={() => setSelectedIncidentModal(inc)}
+                                />
+                              ) : (
+                                <span className="text-gray">—</span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`status-tag status-${(inc.status || "pending").toLowerCase()}`}>
+                                {inc.status}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="table-btn-actions">
+                                <button
+                                  className="btn-table-inspect"
+                                  onClick={() => setSelectedIncidentModal(inc)}
+                                >
+                                  Inspect
+                                </button>
+                                {isAdmin && inc.status === "ACTIVE" && (
+                                  <button
+                                    className="btn-table-resolve"
+                                    onClick={() => handleResolveIncident(inc.incident_id)}
+                                  >
+                                    Resolve
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================
+                9. AI INTELLIGENCE TELEMETRY (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "ai-intel" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>AEGIS AI INTELLIGENCE LAYER</h2>
+                    <span className="sub-title">Real-time LLM inference, Groq API telemetry, and multi-agent triage logs</span>
+                  </div>
+                </div>
+
+                <div className="ai-intel-grid">
+                  <div className="ops-panel intel-status-box">
+                    <div className="ops-panel-header">
+                      <h3>GROQ LLM INFERENCE ENGINE</h3>
+                      <span className="panel-status-sub">ACTIVE SENTINEL</span>
+                    </div>
+                    <div className="intel-data-rows">
+                      <div className="i-row"><span>MODEL:</span><strong>openai/gpt-oss-120b</strong></div>
+                      <div className="i-row"><span>TOKEN BUDGET:</span><strong>&lt; 350 Tokens / Incident</strong></div>
+                      <div className="i-row"><span>AVERAGE LATENCY:</span><strong>~850ms</strong></div>
+                      <div className="i-row"><span>FALLBACK STATUS:</span><strong className="text-green">Deterministic Rule Engine Online</strong></div>
+                    </div>
+                  </div>
+
+                  <div className="ops-panel intel-status-box">
+                    <div className="ops-panel-header">
+                      <h3>CAMPUS ONTOLOGY & SPATIAL ANCHORS</h3>
+                      <span className="panel-status-sub">NORMALIZED</span>
+                    </div>
+                    <div className="intel-data-rows">
+                      <div className="i-row"><span>ACTIVE SECTORS:</span><strong>7 Academic / Residential Blocks</strong></div>
+                      <div className="i-row"><span>SAFE ZONES:</span><strong>Playground (Alpha), Convocation Hall (Shelter)</strong></div>
+                      <div className="i-row"><span>FLEET CAPACITY:</span><strong>{resourceSummary.total} Emergency Units</strong></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================
+                10. DISPATCH ALERTS (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "alerts" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>RESPONDER DISPATCH ALERT LOGS</h2>
+                    <span className="sub-title">Transmitted emergency notifications to field personnel & drivers</span>
+                  </div>
+                  <button className="btn-ops-secondary" onClick={loadAlerts}>
+                    <RefreshCw size={12} /> Sync Alerts
+                  </button>
+                </div>
+
+                {alertsLoading ? (
+                  <div className="ops-loading-box">Loading alert stream...</div>
+                ) : alerts.length === 0 ? (
+                  <div className="ops-empty-box">No dispatch alerts generated. Alerts trigger automatically upon plan approval.</div>
+                ) : (
+                  <div className="alerts-ops-table-wrap">
+                    <table className="ops-data-table">
+                      <thead>
+                        <tr>
+                          <th>ALERT ID</th>
+                          <th>TIME</th>
+                          <th>UNIT</th>
+                          <th>RECIPIENT RESPONDER</th>
+                          <th>PHONE</th>
+                          <th>INCIDENT</th>
+                          <th>DISPATCH MESSAGE</th>
+                          <th>STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {alerts.map((al) => (
+                          <tr key={al.alert_id}>
+                            <td className="font-mono font-bold text-amber">{al.alert_id}</td>
+                            <td className="font-mono text-gray">{new Date(al.created_at).toLocaleTimeString()}</td>
+                            <td className="font-mono font-bold">{al.resource_id}</td>
+                            <td>{al.recipient_name}</td>
+                            <td className="font-mono">{al.recipient_phone || "—"}</td>
+                            <td className="font-mono text-gray">{al.incident_id}</td>
+                            <td className="text-instruction">{al.message}</td>
+                            <td><span className="status-tag status-available">{al.status || "SENT"}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================
+                11. AUDIT LOG (ADMIN)
+                ====================================================== */}
+            {isAdmin && activeTab === "audit" && (
+              <div className="ops-tabular-view">
+                <div className="view-action-header">
+                  <div>
+                    <h2>SYSTEM AUDIT TRAIL</h2>
+                    <span className="sub-title">Immutable chronological log of all operator actions and system transitions</span>
+                  </div>
+                  <button className="btn-ops-secondary" onClick={loadAuditTrail}>
+                    <RefreshCw size={12} /> Refresh Trail
+                  </button>
+                </div>
+
+                {auditLoading ? (
+                  <div className="ops-loading-box">Loading audit logs...</div>
+                ) : auditEvents.length === 0 ? (
+                  <div className="ops-empty-box">No audit events recorded.</div>
+                ) : (
+                  <div className="ops-table-container">
+                    <table className="ops-data-table">
+                      <thead>
+                        <tr>
+                          <th>EVENT TIMESTAMP</th>
+                          <th>ACTION TYPE</th>
+                          <th>OPERATOR / ACTOR</th>
+                          <th>INCIDENT REF</th>
+                          <th>SYSTEM LOG MESSAGE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditEvents.map((evt, idx) => (
+                          <tr key={evt.event_id || idx}>
+                            <td className="font-mono text-gray">{new Date(evt.timestamp || evt.created_at).toLocaleString()}</td>
+                            <td className="font-bold text-cyan">{evt.event_type}</td>
+                            <td>{evt.actor}</td>
+                            <td className="font-mono">{evt.incident_id}</td>
+                            <td className="text-gray">{evt.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
-
-export default App;

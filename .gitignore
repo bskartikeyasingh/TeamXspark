@@ -1,4 +1,47 @@
-
-# Firebase private credentials
-backend/firebase-service-account.json
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.env
 backend/.env
+frontend/.env
+firebase-service-account.json
+backend/firebase-service-account.json
+
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

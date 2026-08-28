@@ -6,20 +6,9 @@ from backend.app.database.mongodb import (
 )
 
 
-# ============================================================
-# AegisCampus AI
-# Audit Trail Service
-# ============================================================
-
-
 class AuditService:
-
     def __init__(self):
         self.events: list[dict[str, Any]] = []
-
-    # ========================================================
-    # RECORD EVENT
-    # ========================================================
 
     def record_event(
         self,
@@ -29,7 +18,6 @@ class AuditService:
         actor: str = "System",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-
         last_event = audit_logs_collection.find_one(
             {},
             sort=[("created_at", -1)],
@@ -37,9 +25,7 @@ class AuditService:
 
         if last_event and last_event.get("event_id"):
             try:
-                last_number = int(
-                    last_event["event_id"].split("-")[1]
-                )
+                last_number = int(last_event["event_id"].split("-")[1])
                 next_number = last_number + 1
             except (ValueError, IndexError):
                 next_number = 1
@@ -47,6 +33,8 @@ class AuditService:
             next_number = 1
 
         event_id = f"AUD-{next_number:05d}"
+        now_dt = datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
 
         event = {
             "event_id": event_id,
@@ -54,8 +42,8 @@ class AuditService:
             "event_type": event_type,
             "message": message,
             "actor": actor,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "created_at": datetime.now(timezone.utc),
+            "timestamp": now_iso,
+            "created_at": now_iso,
             "metadata": metadata if metadata is not None else {},
         }
 
@@ -68,16 +56,11 @@ class AuditService:
 
         return event
 
-    # ========================================================
-    # INCIDENT CREATED
-    # ========================================================
-
     def record_incident_created(
         self,
         incident_id: str,
         incident: dict[str, Any],
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="INCIDENT_CREATED",
@@ -90,16 +73,11 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # AI ANALYSIS
-    # ========================================================
-
     def record_ai_analysis(
         self,
         incident_id: str,
         analysis: dict[str, Any],
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="AI_ANALYSIS",
@@ -113,16 +91,11 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # AGENTS ACTIVATED
-    # ========================================================
-
     def record_agents_activated(
         self,
         incident_id: str,
         agents: list[str],
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="AGENTS_ACTIVATED",
@@ -133,16 +106,11 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # RESOURCE RECOMMENDATION
-    # ========================================================
-
     def record_resource_recommendation(
         self,
         incident_id: str,
         resources: list[str],
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="RESOURCES_RECOMMENDED",
@@ -153,16 +121,11 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # APPROVAL REQUESTED
-    # ========================================================
-
     def record_approval_requested(
         self,
         incident_id: str,
         approval_id: str,
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="APPROVAL_REQUESTED",
@@ -173,17 +136,12 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # APPROVED
-    # ========================================================
-
     def record_approval(
         self,
         incident_id: str,
         approval_id: str,
         approved_by: str,
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="APPROVED",
@@ -194,10 +152,6 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # REJECTED
-    # ========================================================
-
     def record_rejection(
         self,
         incident_id: str,
@@ -205,7 +159,6 @@ class AuditService:
         rejected_by: str,
         reason: str,
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="REJECTED",
@@ -217,17 +170,12 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # RESOURCE DISPATCHED
-    # ========================================================
-
     def record_resource_dispatch(
         self,
         incident_id: str,
         resources: list[str],
         actor: str = "Emergency Command System",
     ) -> dict[str, Any]:
-
         return self.record_event(
             incident_id=incident_id,
             event_type="RESOURCES_DISPATCHED",
@@ -238,42 +186,37 @@ class AuditService:
             },
         )
 
-    # ========================================================
-    # GET INCIDENT AUDIT TRAIL
-    # ========================================================
-
     def get_incident_events(
         self,
         incident_id: str,
     ) -> list[dict[str, Any]]:
-
+        try:
+            events = list(
+                audit_logs_collection.find(
+                    {"incident_id": incident_id},
+                    {"_id": 0},
+                ).sort("created_at", 1)
+            )
+            if events:
+                return events
+        except Exception:
+            pass
         return [
-            event
-            for event in self.events
-            if event["incident_id"] == incident_id
+            event for event in self.events if event.get("incident_id") == incident_id
         ]
-
-    # ========================================================
-    # GET ALL EVENTS
-    # ========================================================
 
     def get_all_events(
         self,
     ) -> list[dict[str, Any]]:
-
-        return self.events.copy()
-
-    # ========================================================
-    # CLEAR EVENTS
-    # ========================================================
+        try:
+            return list(
+                audit_logs_collection.find({}, {"_id": 0}).sort("created_at", -1)
+            )
+        except Exception:
+            return self.events.copy()
 
     def clear_events(self) -> None:
-
         self.events.clear()
 
-
-# ============================================================
-# SHARED AUDIT SERVICE
-# ============================================================
 
 audit_service = AuditService()

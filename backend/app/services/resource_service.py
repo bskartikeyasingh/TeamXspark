@@ -1,328 +1,139 @@
+from datetime import datetime, timezone
 from typing import Any
-
-
-# ============================================================
-# AegisCampus AI
-# Resource Coordination Service
-# ============================================================
+from backend.app.database.mongodb import resources_collection
 
 
 class ResourceCoordinationService:
+    """Production-grade MongoDB-backed Resource Lifecycle and Coordination Service."""
 
-    def __init__(self):
+    VALID_STATUSES = {"AVAILABLE", "DEPLOYED", "UNAVAILABLE", "MAINTENANCE"}
 
-        # ----------------------------------------------------
-        # Demo campus resource registry
-        #
-        # This is intentionally in-memory for the hackathon.
-        # Later we can replace this with MongoDB/PostgreSQL.
-        # ----------------------------------------------------
+    def get_all_resources(self) -> list[dict[str, Any]]:
+        return list(resources_collection.find({}, {"_id": 0}))
 
-        self.resources: list[dict[str, Any]] = [
+    def get_resource(self, resource_id: str) -> dict[str, Any] | None:
+        return resources_collection.find_one({"id": resource_id}, {"_id": 0})
 
-            # =================================================
-            # MEDICAL RESOURCES
-            # =================================================
+    def get_available_resources(self, resource_type: str | None = None) -> list[dict[str, Any]]:
+        query = {"status": "AVAILABLE"}
+        if resource_type:
+            query["type"] = resource_type
+        return list(resources_collection.find(query, {"_id": 0}))
 
-            {
-                "id": "AMB-001",
-                "name": "Campus Ambulance 01",
-                "type": "ambulance",
-                "category": "medical",
-                "status": "available",
-                "location": "Main Medical Center",
-                "capacity": 2,
-                "assigned_incident": None,
-            },
-
-            {
-                "id": "AMB-002",
-                "name": "Campus Ambulance 02",
-                "type": "ambulance",
-                "category": "medical",
-                "status": "busy",
-                "location": "North Block",
-                "capacity": 2,
-                "assigned_incident": "INC-1021",
-            },
-
-            {
-                "id": "FAU-001",
-                "name": "First Aid Unit 01",
-                "type": "first_aid_unit",
-                "category": "medical",
-                "status": "available",
-                "location": "Main Medical Center",
-                "capacity": 10,
-                "assigned_incident": None,
-            },
-
-            # =================================================
-            # SECURITY RESOURCES
-            # =================================================
-
-            {
-                "id": "SEC-001",
-                "name": "Security Team Alpha",
-                "type": "security_team",
-                "category": "security",
-                "status": "available",
-                "location": "Main Gate",
-                "capacity": 6,
-                "assigned_incident": None,
-            },
-
-            {
-                "id": "SEC-002",
-                "name": "Security Team Bravo",
-                "type": "security_team",
-                "category": "security",
-                "status": "available",
-                "location": "East Gate",
-                "capacity": 5,
-                "assigned_incident": None,
-            },
-
-            {
-                "id": "SEC-003",
-                "name": "Security Team Charlie",
-                "type": "security_team",
-                "category": "security",
-                "status": "busy",
-                "location": "Sports Complex",
-                "capacity": 4,
-                "assigned_incident": "INC-1018",
-            },
-
-            # =================================================
-            # FACILITIES RESOURCES
-            # =================================================
-
-            {
-                "id": "FAC-001",
-                "name": "Facilities Response Team Alpha",
-                "type": "facilities_team",
-                "category": "facilities",
-                "status": "available",
-                "location": "Facilities Office",
-                "capacity": 5,
-                "assigned_incident": None,
-            },
-
-            {
-                "id": "FAC-002",
-                "name": "Fire Safety Unit",
-                "type": "fire_safety_unit",
-                "category": "facilities",
-                "status": "available",
-                "location": "Block C",
-                "capacity": 4,
-                "assigned_incident": None,
-            },
-
-            # =================================================
-            # TRANSPORT RESOURCES
-            # =================================================
-
-            {
-                "id": "VEH-001",
-                "name": "Campus Emergency Vehicle 01",
-                "type": "emergency_vehicle",
-                "category": "transport",
-                "status": "available",
-                "location": "Transport Office",
-                "capacity": 8,
-                "assigned_incident": None,
-            },
-
-            {
-                "id": "VEH-002",
-                "name": "Campus Emergency Vehicle 02",
-                "type": "emergency_vehicle",
-                "category": "transport",
-                "status": "available",
-                "location": "North Parking",
-                "capacity": 10,
-                "assigned_incident": None,
-            },
-
-            # =================================================
-            # COMMUNICATION RESOURCES
-            # =================================================
-
-            {
-                "id": "COM-001",
-                "name": "Campus Emergency Broadcast",
-                "type": "emergency_broadcast",
-                "category": "communication",
-                "status": "available",
-                "location": "Command Center",
-                "capacity": 10000,
-                "assigned_incident": None,
-            },
-
-            {
-                "id": "COM-002",
-                "name": "Security Radio Network",
-                "type": "radio_network",
-                "category": "communication",
-                "status": "available",
-                "location": "Command Center",
-                "capacity": 500,
-                "assigned_incident": None,
-            },
-        ]
-
-    # ========================================================
-    # GET ALL RESOURCES
-    # ========================================================
-
-    def get_all_resources(
-        self,
-    ) -> list[dict[str, Any]]:
-
-        return self.resources.copy()
-
-    # ========================================================
-    # GET AVAILABLE RESOURCES
-    # ========================================================
-
-    def get_available_resources(
-        self,
-        category: str | None = None,
-    ) -> list[dict[str, Any]]:
-
-        available = [
-            resource
-            for resource in self.resources
-            if resource["status"] == "available"
-        ]
-
-        if category:
-
-            available = [
-                resource
-                for resource in available
-                if resource["category"]
-                == category
-            ]
-
-        return available
-
-    # ========================================================
-    # FIND RESOURCES FOR AGENT
-    # ========================================================
-
-    def find_resources_for_agent(
-        self,
-        agent_name: str,
-    ) -> list[dict[str, Any]]:
-
-        agent_name = agent_name.lower().strip()
-
-        return self.get_available_resources(
-            category=agent_name
-        )
-
-    # ========================================================
-    # ASSIGN RESOURCE
-    # ========================================================
-
-    def assign_resource(
+    def deploy_resource(
         self,
         resource_id: str,
         incident_id: str,
+        deployed_by: str = "Campus Emergency Commander",
+        deployment_location: str | None = None,
     ) -> dict[str, Any]:
+        """Deploy a resource. Enforces lifecycle rule: AVAILABLE -> DEPLOYED only."""
+        resource = resources_collection.find_one({"id": resource_id})
+        if not resource:
+            raise ValueError(f"Resource {resource_id} not found.")
 
-        for resource in self.resources:
+        current_status = resource.get("status", "AVAILABLE")
+        if current_status != "AVAILABLE":
+            raise ValueError(
+                f"Cannot deploy resource {resource_id} because its current status is {current_status}. "
+                "Only AVAILABLE resources can be deployed."
+            )
 
-            if resource["id"] == resource_id:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        deployment_info = {
+            "incident_id": incident_id,
+            "deployed_at": now_iso,
+            "deployed_by": deployed_by,
+            "deployment_location": deployment_location or resource.get("location", "Campus"),
+        }
 
-                if resource["status"] != "available":
-
-                    raise ValueError(
-                        f"Resource {resource_id} is not available."
-                    )
-
-                resource["status"] = "assigned"
-
-                resource["assigned_incident"] = (
-                    incident_id
-                )
-
-                return resource
-
-        raise ValueError(
-            f"Resource {resource_id} not found."
+        deployment_history = resource.get("deployment_history", [])
+        deployment_history.append(
+            {
+                "action": "DEPLOY",
+                "incident_id": incident_id,
+                "timestamp": now_iso,
+                "actor": deployed_by,
+            }
         )
 
-    # ========================================================
-    # RELEASE RESOURCE
-    # ========================================================
+        resources_collection.update_one(
+            {"id": resource_id},
+            {
+                "$set": {
+                    "status": "DEPLOYED",
+                    "incident_id": incident_id,
+                    "deployed_at": now_iso,
+                    "deployed_by": deployed_by,
+                    "deployment_location": deployment_location or resource.get("location", "Campus"),
+                    "deployment_history": deployment_history,
+                }
+            },
+        )
 
-    def release_resource(
+        return resources_collection.find_one({"id": resource_id}, {"_id": 0})
+
+    def revoke_resource(
         self,
         resource_id: str,
+        incident_id: str | None = None,
+        revoked_by: str = "Campus Emergency Commander",
+        reason: str | None = None,
     ) -> dict[str, Any]:
+        """Revoke a deployed resource. Enforces lifecycle rule: DEPLOYED -> AVAILABLE."""
+        resource = resources_collection.find_one({"id": resource_id})
+        if not resource:
+            raise ValueError(f"Resource {resource_id} not found.")
 
-        for resource in self.resources:
+        current_status = resource.get("status", "AVAILABLE")
+        if current_status != "DEPLOYED":
+            raise ValueError(
+                f"Cannot revoke resource {resource_id} because its status is {current_status}. "
+                "Only DEPLOYED resources can be revoked."
+            )
 
-            if resource["id"] == resource_id:
-
-                resource["status"] = "available"
-
-                resource["assigned_incident"] = None
-
-                return resource
-
-        raise ValueError(
-            f"Resource {resource_id} not found."
+        now_iso = datetime.now(timezone.utc).isoformat()
+        deployment_history = resource.get("deployment_history", [])
+        deployment_history.append(
+            {
+                "action": "REVOKE",
+                "incident_id": incident_id or resource.get("incident_id"),
+                "timestamp": now_iso,
+                "actor": revoked_by,
+                "reason": reason or "Incident completed / Resource stood down",
+            }
         )
 
-    # ========================================================
-    # RESOURCE SUMMARY
-    # ========================================================
-
-    def get_resource_summary(
-        self,
-    ) -> dict[str, Any]:
-
-        total = len(self.resources)
-
-        available = len(
-            [
-                resource
-                for resource in self.resources
-                if resource["status"] == "available"
-            ]
+        resources_collection.update_one(
+            {"id": resource_id},
+            {
+                "$set": {
+                    "status": "AVAILABLE",
+                    "incident_id": None,
+                    "revoked_at": now_iso,
+                    "revoked_by": revoked_by,
+                    "revoke_reason": reason,
+                    "deployment_history": deployment_history,
+                }
+            },
         )
 
-        busy = len(
-            [
-                resource
-                for resource in self.resources
-                if resource["status"] == "busy"
-            ]
-        )
+        return resources_collection.find_one({"id": resource_id}, {"_id": 0})
 
-        assigned = len(
-            [
-                resource
-                for resource in self.resources
-                if resource["status"] == "assigned"
-            ]
-        )
+    def get_resource_summary(self) -> dict[str, Any]:
+        total = resources_collection.count_documents({})
+        available = resources_collection.count_documents({"status": "AVAILABLE"})
+        deployed = resources_collection.count_documents({"status": "DEPLOYED"})
+        unavailable = resources_collection.count_documents({"status": "UNAVAILABLE"})
+        maintenance = resources_collection.count_documents({"status": "MAINTENANCE"})
 
         return {
             "total": total,
             "available": available,
-            "busy": busy,
-            "assigned": assigned,
+            "deployed": deployed,
+            "unavailable": unavailable,
+            "maintenance": maintenance,
         }
 
-
-# ============================================================
-# SHARED RESOURCE SERVICE
-# ============================================================
 
 resource_service = ResourceCoordinationService()
